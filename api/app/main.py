@@ -16,6 +16,9 @@ import os
 
 import sentry_sdk
 from app.db import get_connection
+from app.routers import auth as auth_router
+from app.routers import governance as governance_router
+from app.styles import router as styles_router
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -55,9 +58,21 @@ _cors_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_methods=["GET"],
+    # Phase 1 was read-only (GET everywhere). Phase 3's admin surface
+    # (auth/styles/governance routers below) needs PUT/POST from the same
+    # dev origins, and OPTIONS for the browser's own CORS preflight on those
+    # -- HEAD costs nothing extra to allow alongside GET.
+    allow_methods=["GET", "HEAD", "POST", "PUT", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Phase 3 routers (brief §10/§6.3/§13): auth (login only, no signup),
+# styling draft/publish, and governance metadata editing + audit log. Each
+# lives in its own module (app/routers/, app/styles/) rather than growing
+# this file, since every one of them owns its own admin-gating concerns.
+app.include_router(auth_router.router)
+app.include_router(styles_router.router)
+app.include_router(governance_router.router)
 
 
 @app.get("/healthz")

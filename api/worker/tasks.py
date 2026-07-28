@@ -24,64 +24,14 @@ from psycopg2.extras import execute_values
 
 from worker.celery_app import celery_app
 from worker.common import ensure_bucket, get_duckdb_conn, get_pg_conn, s3_uri, upload_file
+from worker.seed_datasets import DATASET_META
 
-# Hand-written per dataset for Phase 0/1 -- Phase 4's upload flow (brief §16)
-# collects this same information from the curator through a form instead of
-# a code entry, but the registry row it produces looks identical.
-#
-# `sensitivity: "public"` for the two real LandMark datasets below is a
-# deliberate choice, not a default: LandMark's own site already publishes
-# this exact data under CC BY-SA 4.0, and replicating their public map is
-# Horizon 1's explicit goal (brief §1/§15) -- whatever precision/withholding
-# decision LandMark made is already baked into what they released to us, so
-# this build isn't adding any exposure LandMark itself didn't already choose.
-# `serve_mode` records which tile path each dataset is meant to use once
-# published (brief §3 traffic split) -- both still load into PostGIS
-# regardless, since FastAPI's feature-detail endpoint always queries
-# Postgres directly, independent of how the *tiles* get served.
-DATASET_META = {
-    "kenya-admin1-provinces": {
-        "name": "Kenya Admin-1 Provinces (stand-in fixture)",
-        "description": (
-            "Disposable Phase-0 fixture used to prove the ingest -> curate -> "
-            "publish -> tile pipeline end-to-end. Not LandMark data."
-        ),
-        "source": "Natural Earth 1:10m Admin-1 States/Provinces (ne_10m_admin_1_states_provinces)",
-        "license": "Public domain -- no attribution required (naturalearthdata.com/about/terms-of-use)",
-        "attribution": "Natural Earth",
-        "sensitivity": "public",
-        "serve_mode": "martin",
-        "dedup_key": "name",
-    },
-    "landmark-indicative-areas": {
-        "name": "Indicative Areas of Indigenous and Community Land Rights",
-        "description": (
-            "Areas indicatively held or used by Indigenous Peoples and local "
-            "communities, but not yet formally documented/acknowledged -- one "
-            "of LandMark's six core datasets (brief §15)."
-        ),
-        "source": "LandMark: The Global Platform of Indigenous and Community Lands (landmarkmap.org)",
-        "license": "CC BY-SA 4.0, subject to LandMark's Terms of Service",
-        "attribution": "LandMark: The Global Platform of Indigenous and Community Lands",
-        "sensitivity": "public",
-        "serve_mode": "pmtiles",
-        "dedup_key": None,  # OGC_FID is already a unique per-row source id
-    },
-    "landmark-indigenous-community-lands": {
-        "name": "Indigenous Peoples' and Local Community Lands and Territories",
-        "description": (
-            "Community-level lands and territories acknowledged by governments "
-            "(and some not formally acknowledged) -- LandMark's flagship dataset "
-            "(brief §15), global coverage."
-        ),
-        "source": "LandMark: The Global Platform of Indigenous and Community Lands (landmarkmap.org)",
-        "license": "CC BY-SA 4.0, subject to LandMark's Terms of Service",
-        "attribution": "LandMark: The Global Platform of Indigenous and Community Lands",
-        "sensitivity": "public",
-        "serve_mode": "pmtiles",
-        "dedup_key": None,
-    },
-}
+# DATASET_META moved to worker/seed_datasets.py (Phase 5, brief §17's
+# reusability pass) -- it's example/seed CONTENT for this deployment's
+# engineer-triggered CLI path, not pipeline logic, so a new deployment
+# edits/deletes that one file instead of this one. Phase 4's self-service
+# upload flow (brief §16) needs no entry here at all: the curator's upload
+# form + governance-editing endpoints supply this same information per-row.
 
 
 def _geometry_type(con, table: str = "src") -> str:

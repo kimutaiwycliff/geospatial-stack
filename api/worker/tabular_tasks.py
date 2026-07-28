@@ -17,54 +17,13 @@ from psycopg2.extras import execute_values
 
 from worker.celery_app import celery_app
 from worker.common import get_pg_conn
+from worker.seed_datasets import TABULAR_ATTRIBUTION as _ATTRIBUTION
+from worker.seed_datasets import TABULAR_DATASET_META
+from worker.seed_datasets import TABULAR_LICENSE as _LICENSE
+from worker.seed_datasets import TABULAR_SOURCE as _SOURCE
 
-TABULAR_DATASET_META = {
-    "cbd-headline-indicator-22-1": {
-        "name": "CBD Headline Indicator 22.1",
-        "description": (
-            "Convention on Biological Diversity Kunming-Montreal target "
-            "tracker data for headline indicator 22.1 (recognition of "
-            "Indigenous/community lands), by country and year."
-        ),
-        "file_path": "/data/landmark/tabular/CBD_Headline_Indicator_22_1_June2026.xlsx",
-        "sheet": "Target Tracker data",
-        "iso_col": "iso3cd",
-    },
-    "indigenous-population-per-country": {
-        "name": "Indigenous Population per Country",
-        "description": "Estimated Indigenous population and share of national population, by country.",
-        "file_path": "/data/landmark/tabular/Indigenous_population_Aug2024.xlsx",
-        "sheet": "Indigenous_population_Aug2024",
-        "iso_col": "iso_code",
-    },
-    "pct-ip-comm-lands": {
-        "name": "Percent of Country Held by Indigenous Peoples & Local Communities",
-        "description": "Share of national land area formally/indicatively held by Indigenous Peoples and local communities, by country.",
-        "file_path": "/data/landmark/tabular/PCT_IPCommLands_Aug2024v2.xlsx",
-        "sheet": "PCT_IPCommLands_Aug2024v2",
-        "iso_col": "iso_code",
-    },
-    "tenure-security-community": {
-        "name": "Indicators of Tenure Security in National Law (Community)",
-        "description": "Scored indicators evaluating national legal tenure security for community-held lands, by country.",
-        "file_path": "/data/landmark/tabular/TenureSecurityIndicators_202509.xls",
-        "sheet": "Community",
-        "iso_col": "iso_code",
-    },
-    "tenure-security-ip": {
-        "name": "Indicators of Tenure Security in National Law (Indigenous Peoples)",
-        "description": "Scored indicators evaluating national legal tenure security for Indigenous Peoples' lands, by country.",
-        "file_path": "/data/landmark/tabular/TenureSecurityIndicators_202509.xls",
-        "sheet": "IP",
-        "iso_col": "iso_code",
-    },
-}
-
-# Same for all five -- all sourced from the same LandMark data-access grant
-# (brief §1.1) under the same terms.
-_SOURCE = "LandMark: The Global Platform of Indigenous and Community Lands (landmarkmap.org)"
-_LICENSE = "CC BY-SA 4.0, subject to LandMark's Terms of Service"
-_ATTRIBUTION = "LandMark: The Global Platform of Indigenous and Community Lands"
+# TABULAR_DATASET_META (+ the three constants above) moved to worker/
+# seed_datasets.py, same reasoning as tasks.py's DATASET_META import above it.
 
 
 def _clean_col(name) -> str:

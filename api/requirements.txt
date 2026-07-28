@@ -1,0 +1,30 @@
+# Phase 0 vertical slice (brief §17) -- just the two endpoints in app/main.py.
+# Left unpinned: brief says versions were locked 2026-07-27 but "latest stable"
+# is fine here, and pinning exact patch versions now would just mean editing
+# this file again the moment a security release lands. Revisit with hard pins
+# once there's a CI pipeline that can catch a breaking upstream change (§11/§17).
+fastapi
+uvicorn[standard]
+psycopg2-binary
+pydantic
+
+# Phase 1 (brief §1.2): this image is shared by `api`, `worker`, and `flower`
+# (docker-compose.yml overrides CMD per service), so the worker's own deps
+# live here too rather than a separate requirements file for one more image.
+celery[redis]
+flower
+duckdb==1.5.5
+boto3==1.35.36
+# LandMark's national-indicator datasets (brief §15) ship as .xlsx/.xls
+# spreadsheets, not GIS files -- DuckDB's ST_Read can't touch these, so the
+# tabular ingest path reads them with pandas + these two engines
+# (openpyxl for .xlsx, xlrd for the legacy .xls format one file uses).
+pandas
+openpyxl
+xlrd
+
+# Test-only deps. Kept in the same file (rather than a requirements-dev.txt)
+# because this is a two-endpoint Phase 0 slice -- a separate dev-deps file
+# would be one more thing to keep in sync for basically no benefit yet.
+pytest
+httpx

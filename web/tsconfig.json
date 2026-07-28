@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode -- Vite does the actual transpile/bundle, tsc here is
+       purely a type-check gate (see package.json "build" script), so these
+       three options match Vite's own module resolution instead of Node's. */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Strict on purpose -- this is a real client build, not a throwaway
+       prototype, and Phase 1+ will build on top of whatever types Phase 0
+       leaves behind. */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

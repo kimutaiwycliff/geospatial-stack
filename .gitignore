@@ -1,0 +1,39 @@
+settings.local.json
+
+# Secrets -- never commit the real env file, only .env.example
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Node / frontend
+node_modules/
+web/dist/
+web/.vite/
+# Copied from node_modules by web/scripts/copy-maplibre-worker.mjs
+# (postinstall) -- regenerated on every install, not source.
+web/public/maplibre-gl-worker.mjs
+web/public/maplibre-gl-shared.mjs
+
+# Data artifacts -- large/regenerable, not source
+*.parquet
+*.pmtiles
+*.mbtiles
+
+# Real LandMark source data (brief §1.1/§15) -- large binary downloads from
+# landmarkmap.org's access-request portal, not something to commit; the
+# pipeline reads it from here, but the repo's source of truth is the code
+# that processes it, not a multi-GB copy of someone else's shapefiles.
+data/landmark/
+
+# Editor/OS cruft
+.DS_Store
+
+# Claude Code session state -- local tooling artifacts, not project source.
+.claude/

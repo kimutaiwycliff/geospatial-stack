@@ -1,0 +1,39 @@
+# Martin config for the Phase-0 slice. Explicit `tables:` entry (rather than
+# relying on Martin's auto-discovery of every table in `published`) so the
+# tile source id is predictable (`kenya_admin1_provinces`) for the frontend
+# to hardcode, and so a table only becomes tile-servable by being listed
+# here -- an intentional step, matching the registry's own "nothing is
+# servable until explicitly promoted" rule (brief §4/§5).
+#
+# Martin DOES expand env vars inside config.yaml, but only for an *unquoted*
+# $VAR (or ${VAR}) scalar -- quoting it as '${DATABASE_URL}' makes Martin
+# treat the braces+dollar-sign as literal text (confirmed: that variant
+# failed with "unexpected EOF" trying to parse the literal string
+# "${DATABASE_URL}" as a DSN). Omitting connection_string entirely also
+# fails -- Martin explicitly ignores the bare env var once a config file is
+# loaded ("must be used inside the config yaml file"). This unquoted form
+# is the one that actually resolves to the real DSN dbmate/etl also use.
+postgres:
+  connection_string: $DATABASE_URL
+  default_srid: 4326
+  pool_size: 20
+
+  tables:
+    kenya_admin1_provinces:
+      schema: published
+      table: kenya_admin1_provinces
+      srid: 4326
+      geometry_column: geom
+      id_column: id
+      geometry_type: GEOMETRY
+      extent: 4096
+      buffer: 64
+      clip_geom: true
+      properties:
+        id: int8
+        name: text
+        type: text
+        iso_3166_2: text
+        admin: text
+        latitude: float8
+        longitude: float8

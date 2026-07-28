@@ -1,0 +1,14 @@
+/* Tailwind v4: a single @import replaces v3's @tailwind base/components/utilities
+   directives -- the preflight/reset, theme tokens, and utility generation all
+   come from this one line now (brief §2/§6.1a locks Tailwind v4 in). */
+@import "tailwindcss";
+
+/* MapLibre's canvas fills whatever box it's given -- html/body/#root need an
+   explicit height chain or the map collapses to 0px, which is the most common
+   "blank map" bug, so this is set once, globally, rather than per-component. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}

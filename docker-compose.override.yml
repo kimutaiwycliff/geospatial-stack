@@ -1,0 +1,29 @@
+# Local-dev-only conveniences layered on top of docker-compose.yml. Compose
+# auto-merges this file in dev; it is NOT deployed to the VPS (brief §9 --
+# only `proxy` publishes ports there). Exposing these here lets you psql/mc/
+# curl each service directly while building, without going through Caddy.
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  storage:
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO web console
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  martin:
+    ports:
+      - "3000:3000"
+
+  api:
+    ports:
+      - "8000:8000"
+
+  flower:
+    ports:
+      - "5555:5555"

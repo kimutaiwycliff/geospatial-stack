@@ -1,0 +1,41 @@
+# Local dev: plain HTTP on :80 inside the container (mapped to host 8080 in
+# docker-compose.yml). Production swaps this for a real domain + `tls` block --
+# Caddy then handles cert issuance automatically, so this file barely changes.
+:80 {
+	# Dynamic vector tiles (Martin, reads live from PostGIS) -- brief §3
+	# traffic-split: anything filtered/edited at request time goes here.
+	handle_path /tiles/* {
+		reverse_proxy martin:3000
+	}
+
+	# Static published assets: PMTiles archives + basemap, served straight out
+	# of the S3 bucket so MapLibre can range-request them with no DB/API hit.
+	# Path is rewritten to the bucket name so the client URL stays storage-agnostic
+	# (doesn't leak "geoplatform" as a MinIO bucket vs. an R2 bucket later).
+	#
+	# NOT named /assets/* -- that collides with Vite's own default build
+	# output directory (web/dist/assets/index-*.js|css). Caddy would win that
+	# match ahead of the SPA fallback below and silently 403 the app's own JS/
+	# CSS bundle against the S3 bucket instead of serving it from nginx -- this
+	# was caught by actually loading the built site in a browser (blank page,
+	# console showed the CSS request 403'ing with an S3 XML error body).
+	handle_path /objects/* {
+		rewrite * /geoplatform{uri}
+		reverse_proxy storage:9000
+	}
+
+	# Public read API + auth-gated admin + job-trigger endpoints.
+	handle_path /api/* {
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-Prefix /api
+		}
+	}
+
+	# Everything else: the built SPA (nginx container serves static files with
+	# its own history-fallback config for client-side routing).
+	handle {
+		reverse_proxy web:80
+	}
+
+	encode gzip zstd
+}

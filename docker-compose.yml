@@ -1,0 +1,163 @@
+---
+# Prod-like base compose file (brief §9). Every service besides `proxy` stays
+# on the internal Docker network -- only Caddy publishes host ports, even in
+# local dev, so the network topology matches what will run on the VPS later.
+# `docker-compose.override.yml` layers local-only conveniences (extra exposed
+# ports for direct DB/MinIO access while developing) on top of this file.
+
+services:
+  # --- Canonical spatial database ------------------------------------------
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, only against a fresh (empty) volume -- Postgres's own
+      # convention for docker-entrypoint-initdb.d. Keeps `CREATE EXTENSION`
+      # (needs superuser) out of dbmate's tracked migrations, which run as
+      # the app role and only ever manage schemas/tables.
+      - ./db/extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql
+    healthcheck:
+      # pg_isready proves the server accepts connections; migrate/api/martin
+      # all wait on this via `condition: service_healthy` -- never `sleep`.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- One-shot schema migration runner --------------------------------------
+  migrate:
+    image: ghcr.io/amacneil/dbmate:2
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_SCHEMA_FILE: /db/schema.sql
+    volumes:
+      - ./db:/db
+    # dbmate reads DATABASE_URL from .env; runs once and exits 0 on success.
+    command: ["--wait", "up"]
+
+  # --- Dynamic vector tiles from PostGIS -------------------------------------
+  martin:
+    image: ghcr.io/maplibre/martin:latest
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file: .env
+    volumes:
+      - ./tiles/martin:/config
+    command: ["--config", "/config/config.yaml"]
+
+  # --- Public read API + auth-gated admin + job triggers ---------------------
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    env_file: .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Celery worker: validate / curate / tile / ingest (core, brief §2) ----
+  worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "worker.celery_app", "worker", "--loglevel=INFO"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    env_file: .env
+    # Source files an engineer drops in for ingestion (brief §1.1/§1.3) --
+    # read-only, since ingest_task only ever reads from here; it writes
+    # everything downstream to object storage/PostGIS, never back to disk.
+    volumes:
+      - ./data:/data:ro
+
+  # --- Celery monitoring dashboard --------------------------------------------
+  flower:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "worker.celery_app", "flower", "--port=5555"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+
+  # --- Broker + result backend for Celery -------------------------------------
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- S3-compatible object store (default; swap to R2 via .env S3_* vars) --
+  storage:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    command: ["server", "/data", "--console-address", ":9001"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Static frontend build, served by nginx ---------------------------------
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+
+  # --- Edge: TLS, routing, compression, cache, rate limit --------------------
+  # Only this service publishes host ports -- PostGIS/Redis/MinIO/API are
+  # reachable only on the internal Docker network (brief §10).
+  proxy:
+    image: caddy:2-alpine
+    depends_on:
+      - web
+      - api
+      - martin
+      - storage
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  miniodata:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,80 @@
+import { useMemo, useState } from "react";
+import type { CountrySummary } from "../lib/api";
+
+interface CountrySearchProps {
+  countries: CountrySummary[];
+  selectedIso: string | null;
+  onSelect: (country: CountrySummary | null) => void;
+}
+
+/**
+ * Search-by-country-name (brief §6.2 "search" / minimum bar: "search by
+ * country name ... jumps to filter/zoom"). Hand-rolled filtered listbox
+ * instead of a shadcn Combobox -- pulling in Radix's popover/command
+ * machinery for one text input wasn't worth it given the time budget, and
+ * this covers the same keyboard/click affordances at this list size (a few
+ * hundred rows, not thousands).
+ */
+export function CountrySearch({ countries, selectedIso, onSelect }: CountrySearchProps) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const selected = countries.find((c) => c.iso_code === selectedIso);
+
+  const matches = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.trim().toLowerCase();
+    return countries.filter((c) => (c.pop_country as string | undefined)?.toLowerCase().includes(q)).slice(0, 8);
+  }, [countries, query]);
+
+  return (
+    <div className="relative">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Country</h2>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder={selected ? (selected.pop_country as string) : "Search countries..."}
+        className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+      />
+      {selected && !open && (
+        <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+          <span>Showing: {selected.pop_country as string}</span>
+          <button
+            type="button"
+            className="text-blue-600 hover:underline"
+            onClick={() => {
+              onSelect(null);
+              setQuery("");
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+      {open && matches.length > 0 && (
+        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
+          {matches.map((c) => (
+            <li key={c.iso_code}>
+              <button
+                type="button"
+                className="block w-full px-3 py-1.5 text-left text-sm hover:bg-blue-50"
+                onClick={() => {
+                  onSelect(c);
+                  setQuery("");
+                  setOpen(false);
+                }}
+              >
+                {c.pop_country as string}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

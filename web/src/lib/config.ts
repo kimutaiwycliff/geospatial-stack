@@ -111,3 +111,60 @@ export function countryUrl(isoCode: string): string {
 export function featureUrl(datasetSlug: string, idOrName: string | number): string {
   return `${API_BASE_URL}/features/${encodeURIComponent(datasetSlug)}/${encodeURIComponent(idOrName)}`;
 }
+
+// --- Phase 3 admin endpoints (brief §6.3/§10/§13). Same dev-only
+// direct-to-container shortcut as above -- these all sit behind Caddy's
+// same `/api/*` -> strip-prefix rule in prod, so no route here carries an
+// /api prefix either.
+
+/** Form-urlencoded OAuth2PasswordRequestForm login -- NOT JSON (FastAPI's
+ * OAuth2PasswordRequestForm dependency only parses form bodies). */
+export function loginUrl(): string {
+  return `${API_BASE_URL}/auth/login`;
+}
+
+/** Full registry, every tier_status -- the admin-only counterpart to
+ * datasetsUrl(), which the public map deliberately filters to "published". */
+export function adminDatasetsUrl(): string {
+  return `${API_BASE_URL}/admin/datasets`;
+}
+
+/** Partial-update governance fields for one dataset (brief §13). */
+export function adminDatasetGovernanceUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/datasets/${encodeURIComponent(slug)}/governance`;
+}
+
+/**
+ * Audit log, optionally filtered to one dataset. `datasetSlug`/`limit` are
+ * both optional query params on the backend -- omitted here exactly when
+ * the caller omits them, so a bare call still hits the documented default
+ * (limit=100, no dataset filter) instead of this file inventing its own.
+ */
+export function adminAuditLogUrl(opts?: { datasetSlug?: string; limit?: number }): string {
+  const params = new URLSearchParams();
+  if (opts?.datasetSlug) params.set("dataset_slug", opts.datasetSlug);
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
+  const query = params.toString();
+  return `${API_BASE_URL}/admin/audit-log${query ? `?${query}` : ""}`;
+}
+
+/** Every dataset's current draft style row (admin-only preview of unpublished edits). */
+export function adminDraftStylesUrl(): string {
+  return `${API_BASE_URL}/admin/styles/draft`;
+}
+
+/** Upserts one dataset's draft style. */
+export function adminLayerStyleUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/layers/${encodeURIComponent(slug)}/style`;
+}
+
+/** Copies a dataset's draft style into its published row. */
+export function adminLayerPublishUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/layers/${encodeURIComponent(slug)}/publish`;
+}
+
+/** Public (no auth) published styles -- what the live map itself would read
+ * once Phase 3's styling replaces mapSources.ts's hardcoded paint values. */
+export function publishedStylesUrl(): string {
+  return `${API_BASE_URL}/styles/published`;
+}

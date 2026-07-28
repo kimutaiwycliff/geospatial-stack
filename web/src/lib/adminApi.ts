@@ -5,7 +5,15 @@ import {
   adminDraftStylesUrl,
   adminLayerPublishUrl,
   adminLayerStyleUrl,
+  adminMapPublishUrl,
+  adminMapUrl,
+  adminMapsUrl,
+  adminUploadApproveUrl,
+  adminUploadStatusUrl,
+  adminUploadsUrl,
   loginUrl,
+  mapUrl,
+  mapsUrl,
   publishedStylesUrl,
 } from "./config";
 
@@ -32,6 +40,16 @@ export interface AdminDataset {
   serve_mode: "martin" | "pmtiles" | string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Phase 4: `GET /admin/datasets` now also carries the upload pipeline's
+   * validation result -- null for a dataset that hasn't run the upload
+   * pipeline at all (every engineer-triggered ingest before this phase) OR
+   * whose validation hasn't finished yet. Lets the dashboard's list badge a
+   * curated-but-unreviewed upload as "awaiting approval" / "validation
+   * failed" without a second per-dataset request (see AdminDashboard's
+   * TIER_STYLES-adjacent badge logic).
+   */
+  validation_report: ValidationReport | null;
 }
 
 /** Every field optional on purpose -- this is a PATCH-shaped partial update
@@ -76,6 +94,167 @@ export interface PublishedStyle {
 export interface StyleSaveResult {
   style_json: StyleJson;
   version: number;
+}
+
+/**
+ * One GeoJSON Feature from `validation_report.sample_features` -- up to 5
+ * of the uploaded file's actual rows, geometry + properties both real (not
+ * a schema summary), so the curator reviewing a report can see concrete
+ * data rather than just field names and counts. `properties` stays a loose
+ * record for the same reason FeatureDetail (api.ts) does: every upload's
+ * attribute schema is whatever the curator's file happened to contain.
+ */
+export interface SampleFeature {
+  type: "Feature";
+  geometry: GeoJSON.Geometry;
+  properties: Record<string, unknown>;
+}
+
+/**
+ * `validation_report` column on `registry.datasets` -- populated once by
+ * the worker's `contract_test_task`, null before that finishes (see
+ * fetchUploadStatus's poll loop). `passed` is the single boolean the UI
+ * gates the Approve action on; `errors` is only meaningful when `passed`
+ * is false (brief: human-readable strings like "N rows have coordinates
+ * outside WGS84 bounds").
+ */
+export interface ValidationReport {
+  row_count: number;
+  geometry_type: string;
+  null_or_empty_geometry_count: number;
+  invalid_geometry_count: number;
+  out_of_range_count: number;
+  fields: Record<string, string>;
+  sample_features: SampleFeature[];
+  passed: boolean;
+  errors: string[];
+}
+
+/** Response from `POST /admin/uploads` -- returns immediately, before the
+ * worker chain has done anything but enqueue (brief §16: "never block on
+ * the chain finishing"). `tier_status` is always `"raw"` at this point. */
+export interface UploadCreateResult {
+  slug: string;
+  tier_status: "raw";
+}
+
+/** Response from `GET /admin/uploads/{slug}/status` -- a narrower field set
+ * than AdminDataset (no `id`/`created_at`/`updated_at`, since this is a
+ * poll target callers hit every 2-3s and the backend only selects what the
+ * upload flow actually needs). Kept as its own interface rather than
+ * `Pick<AdminDataset, ...>` because AdminDataset's `validation_report` was
+ * added in service of THIS type, not the other way around -- duplicating
+ * the field list here is clearer than a Pick that reads backwards. */
+export interface UploadStatus {
+  slug: string;
+  name: string;
+  description: string;
+  source: string;
+  license: string;
+  attribution: string;
+  sensitivity: "public" | "restricted" | "withheld";
+  tier_status: "raw" | "curated" | "published";
+  serve_mode: "martin" | "pmtiles" | string | null;
+  validation_report: ValidationReport | null;
+}
+
+/** Response from `POST /admin/uploads/{slug}/approve` -- publishing is
+ * async (worker's `run_publish_pipeline`), so this is just an
+ * acknowledgement; callers go back to polling `fetchUploadStatus` to watch
+ * `tier_status` become `"published"`. */
+export interface UploadApproveResult {
+  slug: string;
+  status: "publish_requested";
+}
+
+/**
+ * One layer reference inside a Map's `layers_json` (brief §16: "layers_json
+ * is [{dataset_slug, visible, style_ref: 'published'}]"). `style_ref` only
+ * has one legal value today (a map always renders a layer's PUBLISHED
+ * style, never a curator's in-progress draft) -- kept as a field rather
+ * than hardcoded so a future per-map style override has somewhere to live
+ * without another migration, per the backend's own MapLayer model.
+ */
+export interface MapLayer {
+  dataset_slug: string;
+  visible: boolean;
+  style_ref: "published";
+}
+
+/** Matches urlState.ts's `MapUrlState.view` shape exactly (brief note) --
+ * reused as-is rather than inventing a parallel view-state type. */
+export interface MapExtent {
+  center: [number, number];
+  zoom: number;
+}
+
+/** One row of `GET /maps` -- public map-picker's data source. */
+export interface MapSummary {
+  slug: string;
+  name: string;
+  description: string | null;
+}
+
+/** Response from `GET /maps/{slug}` -- public, full render config for one
+ * published map. `layers_json` here is already filtered server-side down
+ * to layers whose dataset is CURRENTLY published (see maps.py's
+ * get_published_map docstring), so the public page never needs to
+ * re-check that itself. */
+export interface PublicMapConfig {
+  slug: string;
+  name: string;
+  description: string | null;
+  layers_json: MapLayer[];
+  basemap: string;
+  default_extent: MapExtent | null;
+  filters_json: Record<string, unknown> | null;
+  legend_json: Record<string, unknown> | null;
+}
+
+/** One row of `GET /admin/maps` -- the authoring UI's list view, every
+ * status, none of the heavier config fields (matches the backend's
+ * `list_all_maps` SELECT exactly). */
+export interface AdminMapSummary {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  status: "draft" | "published";
+  created_at: string;
+  updated_at: string;
+}
+
+/** Full row of `registry.maps`, as returned by `GET/POST/PUT /admin/maps*`
+ * and the publish endpoint -- what the editor loads and every mutation
+ * echoes back. */
+export interface AdminMapDetail extends AdminMapSummary {
+  layers_json: MapLayer[];
+  basemap: string;
+  default_extent: MapExtent | null;
+  filters_json: Record<string, unknown> | null;
+  legend_json: Record<string, unknown> | null;
+  created_by: string | null;
+  version: number;
+}
+
+/** Body for `POST /admin/maps` -- `name` is the only required field; the
+ * slug is derived server-side (same `slugify` the uploads flow uses). */
+export interface MapCreateBody {
+  name: string;
+  description?: string;
+}
+
+/** Every field optional on purpose -- same `exclude_unset` partial-update
+ * pattern as GovernancePatch. Callers (MapEditor) must diff against the
+ * loaded row themselves and only send what actually changed. */
+export interface MapUpdatePatch {
+  name?: string;
+  description?: string;
+  layers_json?: MapLayer[];
+  basemap?: string;
+  default_extent?: MapExtent | null;
+  filters_json?: Record<string, unknown> | null;
+  legend_json?: Record<string, unknown> | null;
 }
 
 /** One row of `GET /admin/audit-log`. `details` is intentionally left as a
@@ -213,4 +392,135 @@ export async function fetchPublishedStyles(): Promise<PublishedStyle[]> {
 
 export function fetchAuditLog(token: string, opts?: { datasetSlug?: string; limit?: number }): Promise<AuditLogEntry[]> {
   return adminFetch<AuditLogEntry[]>(adminAuditLogUrl(opts), token);
+}
+
+// --- Phase 4: self-service upload (brief §16 steps 1-6).
+
+/**
+ * `POST /admin/uploads` -- multipart/form-data, NOT JSON, unlike every
+ * other admin write in this file. Deliberately does NOT set a
+ * `Content-Type` header: the browser has to generate one itself (
+ * `multipart/form-data; boundary=...`), and setting it manually here would
+ * either omit the boundary (backend can't parse the body at all) or lock
+ * in a boundary string that doesn't match what actually got written to the
+ * request body. `adminFetch` isn't reused here for that same reason -- it
+ * always spreads `authHeaders` first but never forces Content-Type, so it
+ * WOULD work, but bypassing it and being explicit inline makes "this one
+ * call is different" visible at the call site rather than buried in a
+ * shared helper's behavior.
+ */
+export async function createUpload(
+  token: string,
+  file: File,
+  name: string,
+  description?: string,
+): Promise<UploadCreateResult> {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("name", name);
+  if (description) body.append("description", description);
+
+  const res = await fetch(adminUploadsUrl(), {
+    method: "POST",
+    headers: authHeaders(token),
+    body,
+  });
+  if (res.status === 401) {
+    throw new UnauthorizedError(adminUploadsUrl());
+  }
+  if (!res.ok) {
+    // 400 (bad extension) and 409 (slug collision) both carry a useful
+    // `detail` string the caller wants to show verbatim, not just an HTTP
+    // status -- unlike adminFetch's generic error, this reads the body.
+    const detail = await res.json().catch(() => null);
+    const message = typeof detail?.detail === "string" ? detail.detail : `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+  return res.json() as Promise<UploadCreateResult>;
+}
+
+/** Poll target while the worker's validate-only chain runs -- callers
+ * (UploadPanel) are expected to call this every 2-3s until
+ * `validation_report` is non-null, per the brief; this function itself
+ * does exactly one GET, it doesn't own the polling loop. */
+export function fetchUploadStatus(token: string, slug: string): Promise<UploadStatus> {
+  return adminFetch<UploadStatus>(adminUploadStatusUrl(slug), token);
+}
+
+/**
+ * Curator's explicit "publish this" action. `serveMode` is threaded
+ * through as a parameter (rather than hardcoded here) so the call site
+ * documents the constraint inline, but the ONLY legal value today is
+ * `"pmtiles"` -- the backend 400s on anything else (Martin's static tile
+ * config can't pick up a new layer without a manual server-side edit, per
+ * the brief), so UploadPanel must not build a picker offering other modes.
+ */
+export function approveUpload(token: string, slug: string, serveMode: "pmtiles"): Promise<UploadApproveResult> {
+  return adminFetch<UploadApproveResult>(adminUploadApproveUrl(slug), token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ serve_mode: serveMode }),
+  });
+}
+
+// --- Phase 4: Map authoring (brief §16 second half). `fetchMaps`/`fetchMap`
+// are the two public, unauthenticated ones (no token param), matching
+// fetchPublishedStyles' pattern above.
+
+/** Public -- every published map's basic info. */
+export async function fetchMaps(): Promise<MapSummary[]> {
+  const res = await fetch(mapsUrl());
+  if (!res.ok) {
+    throw new Error(`GET ${mapsUrl()} -> HTTP ${res.status}`);
+  }
+  return res.json() as Promise<MapSummary[]>;
+}
+
+/** Public -- one published map's full render config. Throws a plain Error
+ * (including on 404, "map not found or not published") -- MapBySlugPage
+ * treats any failure here the same way, there's no UnauthorizedError path
+ * on an unauthenticated route. */
+export async function fetchMap(slug: string): Promise<PublicMapConfig> {
+  const res = await fetch(mapUrl(slug));
+  if (!res.ok) {
+    throw new Error(`GET ${mapUrl(slug)} -> HTTP ${res.status}`);
+  }
+  return res.json() as Promise<PublicMapConfig>;
+}
+
+/** Admin -- every map, every status. The Maps list view's data source. */
+export function fetchAdminMaps(token: string): Promise<AdminMapSummary[]> {
+  return adminFetch<AdminMapSummary[]>(adminMapsUrl(), token);
+}
+
+/** Admin -- one map's full config regardless of status; what MapEditor loads. */
+export function fetchAdminMap(token: string, slug: string): Promise<AdminMapDetail> {
+  return adminFetch<AdminMapDetail>(adminMapUrl(slug), token);
+}
+
+/** Creates a new empty draft map. 409s if the derived slug collides with
+ * an existing map -- callers show that error, they don't pre-check it
+ * client-side (no `GET /admin/maps?slug=` lookup exists to pre-check with). */
+export function createMap(token: string, body: MapCreateBody): Promise<AdminMapDetail> {
+  return adminFetch<AdminMapDetail>(adminMapsUrl(), token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Partial update -- `patch` should already be diffed down to only the
+ * changed fields by the caller (see MapEditor's diff-against-loaded-values
+ * logic, same pattern as GovernanceForm's `buildPatch`). */
+export function updateMap(token: string, slug: string, patch: MapUpdatePatch): Promise<AdminMapDetail> {
+  return adminFetch<AdminMapDetail>(adminMapUrl(slug), token, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Flips a map's status to published. Idempotent server-side if already published. */
+export function publishMap(token: string, slug: string): Promise<AdminMapDetail> {
+  return adminFetch<AdminMapDetail>(adminMapPublishUrl(slug), token, { method: "POST" });
 }

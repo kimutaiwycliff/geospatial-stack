@@ -1,7 +1,10 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AdminDashboard } from "./components/admin/AdminDashboard";
 import { AdminLogin } from "./components/admin/AdminLogin";
+import { AdminMapsPage } from "./components/admin/AdminMapsPage";
+import { MapEditor } from "./components/admin/MapEditor";
 import { Landing } from "./components/Landing";
+import { MapBySlugPage } from "./components/MapBySlugPage";
 import { MapPage } from "./components/MapPage";
 import { AdminAuthProvider, RequireAdmin } from "./lib/adminAuth";
 
@@ -19,6 +22,13 @@ import { AdminAuthProvider, RequireAdmin } from "./lib/adminAuth";
 // useAdminAuth() without every call site needing to know whether it's
 // "inside" the admin section -- cheap to provide everywhere, and this app
 // has no competing top-level context that would collide with it.
+//
+// Phase 4 adds two more admin routes (Map authoring, brief §16) behind the
+// SAME <RequireAdmin> guard as `/admin`, plus one new PUBLIC route: `/m/
+// :slug`, a published Map's shareable page. That one deliberately sits
+// alongside `/map` (the all-datasets default view) rather than under it --
+// a Map is "one curated slice", not a mode of the general map, so it gets
+// its own top-level path instead of a query param on `/map`.
 export default function App() {
   return (
     <AdminAuthProvider>
@@ -26,12 +36,29 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/map" element={<MapPage />} />
+          <Route path="/m/:slug" element={<MapBySlugPage />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route
             path="/admin"
             element={
               <RequireAdmin>
                 <AdminDashboard />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/maps"
+            element={
+              <RequireAdmin>
+                <AdminMapsPage />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/maps/:slug"
+            element={
+              <RequireAdmin>
+                <MapEditor />
               </RequireAdmin>
             }
           />

@@ -3,8 +3,9 @@ import type { AdminDataset, DraftStyle } from "../../lib/adminApi";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { GovernanceForm } from "./GovernanceForm";
 import { StylingPanel } from "./StylingPanel";
+import { UploadStatusPanel } from "./UploadStatusPanel";
 
-type Tab = "governance" | "styling";
+type Tab = "governance" | "styling" | "publishing";
 
 /**
  * Governance + styling for one selected dataset, in a single view (brief
@@ -24,12 +25,19 @@ export function DatasetDetail({
   draft,
   onGovernanceSaved,
   onDraftSaved,
+  onDatasetPatch,
 }: {
   token: string;
   dataset: AdminDataset;
   draft: DraftStyle | null;
   onGovernanceSaved: (patch: Partial<AdminDataset>) => void;
   onDraftSaved: (draft: DraftStyle) => void;
+  /** Same "patch the list's copy of this row" callback as onGovernanceSaved,
+   * just under its own name here -- UploadStatusPanel patches tier_status/
+   * serve_mode/validation_report, not governance fields, so reusing
+   * `onGovernanceSaved`'s name at this call site would read backwards even
+   * though both ultimately call the same merge function in AdminDashboard. */
+  onDatasetPatch: (patch: Partial<AdminDataset>) => void;
 }) {
   const [tab, setTab] = useState<Tab>("governance");
 
@@ -43,7 +51,7 @@ export function DatasetDetail({
       </div>
 
       <div className="flex gap-1 border-b border-slate-200">
-        {(["governance", "styling"] as Tab[]).map((t) => (
+        {(["governance", "styling", "publishing"] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -60,6 +68,9 @@ export function DatasetDetail({
       {tab === "governance" && <GovernanceForm token={token} dataset={dataset} onSaved={onGovernanceSaved} />}
       {tab === "styling" && (
         <StylingPanel key={dataset.slug} token={token} slug={dataset.slug} draft={draft} onDraftSaved={onDraftSaved} />
+      )}
+      {tab === "publishing" && (
+        <UploadStatusPanel key={dataset.slug} token={token} dataset={dataset} onStatusChange={onDatasetPatch} />
       )}
 
       <AuditLogPanel key={`audit:${dataset.slug}`} token={token} slug={dataset.slug} />

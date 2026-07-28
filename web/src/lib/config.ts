@@ -168,3 +168,55 @@ export function adminLayerPublishUrl(slug: string): string {
 export function publishedStylesUrl(): string {
   return `${API_BASE_URL}/styles/published`;
 }
+
+// --- Phase 4 self-service upload endpoints (brief §16 steps 1-6). Same
+// dev-only direct-to-container shortcut as every URL above.
+
+/** `POST /admin/uploads` -- multipart file + name + description. */
+export function adminUploadsUrl(): string {
+  return `${API_BASE_URL}/admin/uploads`;
+}
+
+/** Polling target while validation runs in the worker -- see adminApi.ts's
+ * fetchUploadStatus for the poll-until-`validation_report`-is-non-null loop. */
+export function adminUploadStatusUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/uploads/${encodeURIComponent(slug)}/status`;
+}
+
+/** Curator's explicit "publish this" action -- 400s server-side unless
+ * `validation_report.passed` is already true (the UI is expected to gate on
+ * that itself rather than rely on the error, see UploadPanel). */
+export function adminUploadApproveUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/uploads/${encodeURIComponent(slug)}/approve`;
+}
+
+// --- Phase 4 Map authoring endpoints (brief §16 second half). A Map is
+// pure stored config over registry layers -- no worker/pipeline involved,
+// unlike uploads above.
+
+/** Public, no auth -- every published map's basic info (a map-picker's data source). */
+export function mapsUrl(): string {
+  return `${API_BASE_URL}/maps`;
+}
+
+/** Public, no auth -- one published map's full render config. 404s if the
+ * map doesn't exist or isn't published (see MapBySlugPage's error handling). */
+export function mapUrl(slug: string): string {
+  return `${API_BASE_URL}/maps/${encodeURIComponent(slug)}`;
+}
+
+/** Admin -- every map regardless of status; the authoring UI's list view. */
+export function adminMapsUrl(): string {
+  return `${API_BASE_URL}/admin/maps`;
+}
+
+/** Admin -- one map's full config regardless of status (GET for the editor
+ * to load, PUT for its partial-update save). */
+export function adminMapUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/maps/${encodeURIComponent(slug)}`;
+}
+
+/** Admin -- flips a map's status draft -> published. Idempotent server-side. */
+export function adminMapPublishUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/maps/${encodeURIComponent(slug)}/publish`;
+}

@@ -1,0 +1,228 @@
+"""Map authoring (brief §16 second half): "a Map (project) is config, not
+code... because a Map is just stored config over registry layers, 'create
+a new map' needs no engineering." This router is that config's CRUD +
+publish surface -- there is no worker task involved anywhere here (unlike
+uploads.py), since nothing about saving a Map touches the pipeline.
+
+Unlike registry.layer_styles' separate draft/published ROWS (brief §6.3,
+so a curator can keep editing a draft after publishing), a Map has exactly
+one row with a `status` column: publishing it just flips that column, and
+every subsequent PUT edits the SAME row whether it's currently draft or
+published -- editing an already-published map takes effect immediately.
+That's a deliberate difference from styles, not an oversight: a Map's
+"draft" state is about "not yet given a public route" (brief §16: "the map
+gets a public route/slug"), not about hiding in-progress edits from a
+version already live -- styles has that second need (client-side repaint
+independent of admin edits), Maps doesn't.
+"""
+import json
+from typing import Literal
+
+from app.auth.dependencies import require_admin
+from app.db import get_connection
+from app.registry.audit import write_audit_log
+from app.registry.slugs import slugify
+from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import BaseModel
+
+router = APIRouter(tags=["maps"])
+
+
+class MapLayer(BaseModel):
+    dataset_slug: str
+    visible: bool = True
+    # Only "published" exists today -- see the module docstring on why a
+    # map never shows anyone's in-progress style draft. Kept as a field
+    # (not hardcoded server-side) so a per-map style override has
+    # somewhere to live later without another migration.
+    style_ref: Literal["published"] = "published"
+
+
+class MapCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class MapUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    layers_json: list[MapLayer] | None = None
+    basemap: str | None = None
+    default_extent: dict | None = None
+    filters_json: dict | None = None
+    legend_json: dict | None = None
+
+
+def _row_to_map(row: dict) -> dict:
+    row = dict(row)
+    if row.get("id") is not None:
+        row["id"] = str(row["id"])
+    return row
+
+
+@router.get("/maps")
+def list_published_maps():
+    """Public: every published map's basic info -- a map-picker/index page's
+    data source, same role `GET /datasets` plays for layers."""
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT slug, name, description FROM registry.maps WHERE status = 'published' ORDER BY name")
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return rows
+
+
+@router.get("/maps/{slug}")
+def get_published_map(slug: str):
+    """Public: full render config for one published map. `layers_json` is
+    filtered down to entries whose dataset is CURRENTLY tier_status=
+    'published' -- a map saved against a layer that's since been
+    unpublished/withheld degrades gracefully (that one layer just
+    disappears) instead of 404ing the whole map or leaking a withheld
+    dataset's existence through a stale layer reference."""
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT slug, name, description, layers_json, basemap, default_extent, filters_json, legend_json
+                FROM registry.maps WHERE slug = %s AND status = 'published'
+                """,
+                (slug,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="map not found")
+
+            layer_slugs = [layer["dataset_slug"] for layer in row["layers_json"]]
+            published_slugs = set()
+            if layer_slugs:
+                cur.execute(
+                    "SELECT slug FROM registry.datasets WHERE slug = ANY(%s) AND tier_status = 'published'",
+                    (layer_slugs,),
+                )
+                published_slugs = {r["slug"] for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+    row["layers_json"] = [layer for layer in row["layers_json"] if layer["dataset_slug"] in published_slugs]
+    return row
+
+
+@router.get("/admin/maps")
+def list_all_maps(admin: dict = Depends(require_admin)):
+    """Admin: every map regardless of status -- the authoring UI's list view."""
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, slug, name, description, status, created_at, updated_at FROM registry.maps ORDER BY name"
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return [_row_to_map(r) for r in rows]
+
+
+@router.get("/admin/maps/{slug}")
+def get_map_for_editing(slug: str, admin: dict = Depends(require_admin)):
+    """Admin: full config regardless of status, unfiltered -- the authoring
+    UI needs to show/edit layer references even to datasets that aren't
+    (yet) published, unlike the public read above."""
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM registry.maps WHERE slug = %s", (slug,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="map not found")
+    return _row_to_map(row)
+
+
+@router.post("/admin/maps")
+def create_map(body: MapCreate, admin: dict = Depends(require_admin)):
+    try:
+        slug = slugify(body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM registry.maps WHERE slug = %s", (slug,))
+            if cur.fetchone() is not None:
+                raise HTTPException(status_code=409, detail=f"a map with slug '{slug}' already exists")
+            cur.execute(
+                "INSERT INTO registry.maps (name, slug, description, created_by) VALUES (%s, %s, %s, %s) RETURNING *",
+                (body.name, slug, body.description, admin["email"]),
+            )
+            row = cur.fetchone()
+            write_audit_log(cur, admin, "map.created", slug, {"name": body.name})
+    finally:
+        conn.close()
+    return _row_to_map(row)
+
+
+@router.put("/admin/maps/{slug}")
+def update_map(slug: str, update: MapUpdate = Body(...), admin: dict = Depends(require_admin)):
+    """Partial update (`exclude_unset`, same pattern as governance's dataset
+    edit) -- an authoring UI saving just a basemap change shouldn't have to
+    resend the full layers_json it may not have freshly loaded."""
+    fields = update.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="no fields to update")
+
+    layer_slugs = [layer["dataset_slug"] for layer in fields.get("layers_json", [])]
+    # JSONB columns need an explicit json.dumps -- psycopg2 has no built-in
+    # adapter for a bare Python list/dict targeting jsonb (see styles
+    # router's identical pattern for the single-value case).
+    jsonb_fields = {"layers_json", "default_extent", "filters_json", "legend_json"}
+    params = {field: (json.dumps(value) if field in jsonb_fields else value) for field, value in fields.items()}
+    set_clause = ", ".join(f"{field} = %({field})s" for field in fields)
+
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            if layer_slugs:
+                cur.execute("SELECT slug FROM registry.datasets WHERE slug = ANY(%s)", (layer_slugs,))
+                known = {r["slug"] for r in cur.fetchall()}
+                unknown = set(layer_slugs) - known
+                if unknown:
+                    raise HTTPException(status_code=400, detail=f"unknown dataset slug(s) in layers_json: {sorted(unknown)}")
+
+            cur.execute(
+                f"UPDATE registry.maps SET {set_clause} WHERE slug = %(slug)s RETURNING *",
+                {**params, "slug": slug},
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="map not found")
+            write_audit_log(cur, admin, "map.updated", slug, fields)
+    finally:
+        conn.close()
+    return _row_to_map(row)
+
+
+@router.post("/admin/maps/{slug}/publish")
+def publish_map(slug: str, admin: dict = Depends(require_admin)):
+    """Flips status draft -> published (brief §16: "the map gets a public
+    route/slug and shareable URL") -- idempotent no-op if already published,
+    since re-approving an already-live map isn't an error, just redundant."""
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE registry.maps SET status = 'published' WHERE slug = %s RETURNING *",
+                (slug,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="map not found")
+            write_audit_log(cur, admin, "map.published", slug, None)
+    finally:
+        conn.close()
+    return _row_to_map(row)

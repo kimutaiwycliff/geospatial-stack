@@ -43,7 +43,7 @@ def list_all_datasets(admin: dict = Depends(require_admin)):
             cur.execute(
                 """
                 SELECT id, slug, name, description, source, license, attribution,
-                       sensitivity, tier_status, serve_mode, created_at, updated_at
+                       sensitivity, tier_status, serve_mode, validation_report, created_at, updated_at
                 FROM registry.datasets
                 ORDER BY name
                 """

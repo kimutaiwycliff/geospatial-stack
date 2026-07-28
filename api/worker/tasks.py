@@ -132,6 +132,35 @@ def _table_name(slug: str) -> str:
     return slug.replace("-", "_")
 
 
+def _metadata_for(slug: str, pg) -> dict:
+    """Phase 0/1 datasets are hand-entered in DATASET_META above; Phase 4's
+    self-service upload flow (brief §16 step 2) collects the same fields
+    through a curator form instead, and the upload endpoint (app/routers/
+    uploads.py) writes them into a draft registry.datasets row BEFORE ever
+    dispatching this task chain -- so for any slug not in DATASET_META, that
+    row is the metadata source instead. Raises if neither exists: every
+    ingest run must have SOME source of name/license/attribution etc, there
+    is no third, implicit default.
+    """
+    if slug in DATASET_META:
+        return DATASET_META[slug]
+    with pg.cursor() as cur:
+        cur.execute(
+            "SELECT name, description, source, license, attribution, sensitivity FROM registry.datasets WHERE slug = %s",
+            (slug,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise ValueError(f"no DATASET_META entry and no registry.datasets row for slug '{slug}' -- ingest_task "
+                          "needs one or the other to exist before it runs")
+    # dedup_key/serve_mode have no self-service form field (dedup is a
+    # Phase 0/1-only concept for known-duplicated fixture data; serve_mode
+    # is a curator decision made at APPROVAL time, not upload time -- see
+    # app/routers/uploads.py's approve endpoint and run_publish_pipeline
+    # below) -- both are absent from a DB-sourced meta dict on purpose.
+    return dict(row)
+
+
 @celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
 def ingest_task(self, source_path: str, slug: str):
     """Step 1: source file -> immutable GeoParquet in raw/, registry row
@@ -140,7 +169,6 @@ def ingest_task(self, source_path: str, slug: str):
     normalization is curate_task's job, brief §5 step 2); the registry's
     `extent` bbox is still computed in true EPSG:4326 degrees, since that
     column is documented as always-4326 regardless of tier."""
-    meta = DATASET_META[slug]
     ensure_bucket()
     con = get_duckdb_conn()
 
@@ -165,6 +193,7 @@ def ingest_task(self, source_path: str, slug: str):
     con.execute(f"COPY (SELECT * FROM src) TO '{dest}' (FORMAT PARQUET)")
 
     pg = get_pg_conn()
+    meta = _metadata_for(slug, pg)
     with pg, pg.cursor() as cur:
         cur.execute(
             """
@@ -196,7 +225,11 @@ def curate_task(self, prev_result, slug: str):
     ST_MakeValid, optional dedup, attribute cleanup, dest tier_status=curated.
     `prev_result` is unused -- accepted so this task can sit directly in a
     Celery `chain()` after ingest_task."""
-    meta = DATASET_META[slug]
+    # .get(), not [slug] -- a self-service upload (brief §16) has no
+    # DATASET_META entry at all; dedup is a Phase 0/1-only concept for
+    # known-duplicated fixture/LandMark data (see the comment below), so
+    # "no entry" and "entry with dedup_key=None" mean the same thing here.
+    meta = DATASET_META.get(slug, {})
     con = get_duckdb_conn()
     con.execute(f"CREATE TABLE raw_tbl AS SELECT * FROM read_parquet('{s3_uri(f'raw/{slug}.parquet')}')")
     before = con.execute("SELECT COUNT(*) FROM raw_tbl").fetchone()[0]
@@ -274,50 +307,117 @@ def curate_task(self, prev_result, slug: str):
     return {"slug": slug, "step": "curate", "before": before, "after": after, "invalid_repaired": invalid_before, "source_srid": srid}
 
 
+def _sample_features(con, table: str, limit: int = 5) -> list:
+    """A handful of full features (geometry simplified + every attribute)
+    for the curator's validation report (brief §16 step 3: "a sample map")
+    -- not a real map render, just enough GeoJSON for the admin UI to drop
+    onto a throwaway MapLibre instance so a curator can eyeball "does this
+    look like what I uploaded" without downloading the whole file.
+    `ST_Simplify` at a coarse tolerance keeps even a detailed polygon's
+    JSON small; this is a sanity-check sample, not the published tiles."""
+    attr_cols = [row[1] for row in con.execute(f"PRAGMA table_info('{table}')").fetchall() if row[1] not in ("geom", "bbox")]
+    select_cols = ", ".join(f'"{c}"::VARCHAR AS "{c}"' for c in attr_cols)
+    rows = con.execute(
+        f"SELECT {select_cols}, ST_AsGeoJSON(ST_Simplify(geom, 0.01)) AS geom_geojson "
+        f"FROM {table} USING SAMPLE {limit}"
+    ).fetchall()
+    columns = [d[0] for d in con.description]
+    features = []
+    for row in rows:
+        record = dict(zip(columns, row))
+        geom_geojson = record.pop("geom_geojson")
+        features.append({"type": "Feature", "geometry": json.loads(geom_geojson), "properties": record})
+    return features
+
+
 @celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
 def contract_test_task(self, prev_result, slug: str):
     """Step 3: contract gate on curated output -- schema, validity, WGS84
-    range, row-count sanity (brief §5 step 3). Raising here is the gate:
-    Celery marks the task (and therefore the chain) FAILURE, so
-    load_to_postgis never runs against unvalidated data."""
+    range, row-count sanity (brief §5 step 3), PLUS (brief §16 step 3) a
+    structured report -- geometry validity, CRS, field types, row count,
+    a feature sample -- persisted to registry.datasets.validation_report
+    so a curator can review it in the admin UI regardless of whether this
+    task ultimately passes or raises. Every check below accumulates into
+    `errors` instead of raising immediately, specifically so a FAILED
+    upload still gets a complete, inspectable report ("here's everything
+    that's wrong with your file") rather than only ever reporting the
+    first problem found and stopping.
+
+    Raising at the end is still the gate: Celery marks the task (and
+    therefore the chain) FAILURE, so load_postgis_task never runs against
+    unvalidated data -- unchanged from Phase 0/1's behavior."""
     con = get_duckdb_conn()
     con.execute(f"CREATE TABLE curated_tbl AS SELECT * FROM read_parquet('{s3_uri(f'curated/{slug}.parquet')}')")
 
     cols = {row[1] for row in con.execute("PRAGMA table_info('curated_tbl')").fetchall()}
+    errors = []
     required = {"geom", "bbox"}
     missing = required - cols
     if missing:
-        raise ValueError(f"curated dataset is missing required columns: {missing}")
+        errors.append(f"curated dataset is missing required columns: {sorted(missing)}")
 
-    bad = con.execute("SELECT COUNT(*) FROM curated_tbl WHERE geom IS NULL OR ST_IsEmpty(geom)").fetchone()[0]
-    if bad:
-        raise ValueError(f"{bad} rows have null/empty geometry")
+    null_or_empty = con.execute("SELECT COUNT(*) FROM curated_tbl WHERE geom IS NULL OR ST_IsEmpty(geom)").fetchone()[0]
+    if null_or_empty:
+        errors.append(f"{null_or_empty} rows have null/empty geometry")
 
     invalid = con.execute("SELECT COUNT(*) FROM curated_tbl WHERE NOT ST_IsValid(geom)").fetchone()[0]
     if invalid:
-        raise ValueError(f"{invalid} rows still fail ST_IsValid after curation")
+        errors.append(f"{invalid} rows still fail ST_IsValid after curation")
 
     out_of_range = con.execute(
         "SELECT COUNT(*) FROM curated_tbl WHERE ST_XMin(geom) < -180 OR ST_XMax(geom) > 180 "
         "OR ST_YMin(geom) < -90 OR ST_YMax(geom) > 90"
     ).fetchone()[0]
     if out_of_range:
-        raise ValueError(f"{out_of_range} rows have coordinates outside WGS84 bounds")
+        errors.append(f"{out_of_range} rows have coordinates outside WGS84 bounds")
 
     count = con.execute("SELECT COUNT(*) FROM curated_tbl").fetchone()[0]
     # Wide but real bound -- catches a truncated/empty source or an exploded
     # join without hardcoding an exact expected count per dataset. Raised
     # from Phase 0's 500 to cover LandMark's largest layer (~330K rows).
     if not (1 <= count <= 2_000_000):
-        raise ValueError(f"row count {count} is outside the sane range for a promotable dataset")
+        errors.append(f"row count {count} is outside the sane range for a promotable dataset")
 
+    report = {
+        "row_count": count,
+        "geometry_type": _geometry_type(con, "curated_tbl") if "geom" in cols else None,
+        "null_or_empty_geometry_count": null_or_empty,
+        "invalid_geometry_count": invalid,
+        "out_of_range_count": out_of_range,
+        "fields": {k: v for k, v in _schema_json(con, "curated_tbl").items() if k != "bbox"},
+        "sample_features": _sample_features(con, "curated_tbl") if not missing else [],
+        "passed": not errors,
+        "errors": errors,
+    }
+
+    pg = get_pg_conn()
+    with pg, pg.cursor() as cur:
+        cur.execute(
+            "UPDATE registry.datasets SET validation_report = %s WHERE slug = %s",
+            (json.dumps(report), slug),
+        )
+    pg.close()
+
+    if errors:
+        raise ValueError("; ".join(errors))
     return {"slug": slug, "step": "contract_test", "row_count": count, "passed": True}
 
 
 @celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
-def load_postgis_task(self, prev_result, slug: str):
+def load_postgis_task(self, prev_result, slug: str, serve_mode: str | None = None):
     """Step 4: curated -> published.<table> with a spatial index + ANALYZE,
-    registry flips to tier_status=published, serve_mode from DATASET_META.
+    registry flips to tier_status=published.
+
+    `serve_mode`: explicit param (not just DATASET_META) so a curator's
+    approval-time choice (brief §16 step 5 -- "Worker loads to published
+    and builds tiles (PMTiles or assigns Martin)") can drive this without
+    a code entry. `None` (Phase 0/1's engineer-triggered `run_pipeline`
+    path, which never passes this) falls back to DATASET_META as before.
+    Phase 4's self-service approval endpoint (app/routers/uploads.py)
+    always passes `serve_mode="pmtiles"` explicitly -- Martin's serve path
+    needs a curator-added dataset to be added to tiles/martin/config.yaml
+    and the container reloaded, which nothing here automates yet, so
+    self-service publishing offers PMTiles only until that's built.
 
     Overrides celery_app's global 600s/900s limits: the Kenya fixture's 8
     rows finish in seconds, but LandMark's community-lands layer is ~330K
@@ -326,7 +426,8 @@ def load_postgis_task(self, prev_result, slug: str):
     (this one, build_pmtiles_task) get their own generous ceiling instead
     of a blanket increase that would mask a genuinely hung ingest/curate/
     contract-test task."""
-    meta = DATASET_META[slug]
+    meta = DATASET_META.get(slug, {})
+    resolved_serve_mode = serve_mode or meta.get("serve_mode", "martin")
     table = _table_name(slug)
     con = get_duckdb_conn()
     con.execute(f"CREATE TABLE curated_tbl AS SELECT * FROM read_parquet('{s3_uri(f'curated/{slug}.parquet')}')")
@@ -373,7 +474,7 @@ def load_postgis_task(self, prev_result, slug: str):
         cur.execute(f'ANALYZE published."{table}"')
         cur.execute(
             "UPDATE registry.datasets SET tier_status = 'published', serve_mode = %s WHERE slug = %s",
-            (meta.get("serve_mode", "martin"), slug),
+            (resolved_serve_mode, slug),
         )
     pg.close()
     return {"slug": slug, "step": "load_postgis", "rows": len(values), "table": table}
@@ -455,5 +556,35 @@ def run_pipeline(source_path: str, slug: str, build_static: bool = False):
     """
     steps = [ingest_task.s(source_path, slug), curate_task.s(slug), contract_test_task.s(slug), load_postgis_task.s(slug)]
     if build_static:
+        steps.append(build_pmtiles_task.s(slug))
+    return chain(*steps).apply_async()
+
+
+def run_upload_pipeline(source_path: str, slug: str):
+    """Self-service counterpart to `run_pipeline` (brief §16 steps 1-3):
+    ingest -> curate -> contract_test, and STOPS -- no load_postgis_task,
+    no auto-publish. The curator reviews contract_test_task's persisted
+    `validation_report` (and sets governance fields via the existing
+    PUT /admin/datasets/{slug}/governance) before anything reaches
+    `published`; that review is `run_publish_pipeline`, a deliberately
+    separate dispatch a curator triggers explicitly via
+    POST /admin/uploads/{slug}/approve, not an automatic next step of this
+    chain. Called from app/routers/uploads.py's upload endpoint right after
+    it creates the draft registry.datasets row (see _metadata_for's
+    docstring above for why that ordering matters)."""
+    return chain(ingest_task.s(source_path, slug), curate_task.s(slug), contract_test_task.s(slug)).apply_async()
+
+
+def run_publish_pipeline(slug: str, serve_mode: str):
+    """Curator-triggered publish (brief §16 steps 4-6), dispatched from
+    POST /admin/uploads/{slug}/approve once `validation_report.passed` is
+    true. `load_postgis_task.s(None, slug, serve_mode=serve_mode)` passes
+    `None` explicitly for `prev_result` because THIS chain has no
+    predecessor to auto-fill it (unlike `run_pipeline`'s chain, where
+    Celery prepends contract_test_task's real return value) -- see that
+    task's own docstring for why `serve_mode` is a required, explicit
+    argument here rather than falling back to DATASET_META."""
+    steps = [load_postgis_task.s(None, slug, serve_mode=serve_mode)]
+    if serve_mode == "pmtiles":
         steps.append(build_pmtiles_task.s(slug))
     return chain(*steps).apply_async()

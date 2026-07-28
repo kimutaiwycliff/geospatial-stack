@@ -18,6 +18,8 @@ import sentry_sdk
 from app.db import get_connection
 from app.routers import auth as auth_router
 from app.routers import governance as governance_router
+from app.routers import maps as maps_router
+from app.routers import uploads as uploads_router
 from app.styles import router as styles_router
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,6 +75,10 @@ app.add_middleware(
 app.include_router(auth_router.router)
 app.include_router(styles_router.router)
 app.include_router(governance_router.router)
+# Phase 4 routers (brief §16): self-service upload/validate/approve/publish,
+# and Map authoring config CRUD + public read.
+app.include_router(uploads_router.router)
+app.include_router(maps_router.router)
 
 
 @app.get("/healthz")

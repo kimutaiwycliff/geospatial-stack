@@ -145,6 +145,16 @@ CREATE TYPE auth.role AS ENUM (
 
 
 --
+-- Name: map_status; Type: TYPE; Schema: registry; Owner: -
+--
+
+CREATE TYPE registry.map_status AS ENUM (
+    'draft',
+    'published'
+);
+
+
+--
 -- Name: sensitivity; Type: TYPE; Schema: registry; Owner: -
 --
 
@@ -806,7 +816,8 @@ CREATE TABLE registry.datasets (
     created_by text,
     version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    validation_report jsonb
 );
 
 
@@ -820,6 +831,28 @@ CREATE TABLE registry.layer_styles (
     status registry.style_status DEFAULT 'draft'::registry.style_status NOT NULL,
     style_json jsonb NOT NULL,
     updated_by uuid,
+    version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: maps; Type: TABLE; Schema: registry; Owner: -
+--
+
+CREATE TABLE registry.maps (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    description text,
+    layers_json jsonb DEFAULT '[]'::jsonb NOT NULL,
+    basemap text DEFAULT 'light'::text NOT NULL,
+    default_extent jsonb,
+    filters_json jsonb,
+    legend_json jsonb,
+    status registry.map_status DEFAULT 'draft'::registry.map_status NOT NULL,
+    created_by text,
     version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
@@ -995,6 +1028,22 @@ ALTER TABLE ONLY registry.layer_styles
 
 
 --
+-- Name: maps maps_pkey; Type: CONSTRAINT; Schema: registry; Owner: -
+--
+
+ALTER TABLE ONLY registry.maps
+    ADD CONSTRAINT maps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: maps maps_slug_key; Type: CONSTRAINT; Schema: registry; Owner: -
+--
+
+ALTER TABLE ONLY registry.maps
+    ADD CONSTRAINT maps_slug_key UNIQUE (slug);
+
+
+--
 -- Name: cbd_headline_indicator_22_1_iso_idx; Type: INDEX; Schema: published; Owner: -
 --
 
@@ -1079,6 +1128,13 @@ CREATE UNIQUE INDEX layer_styles_dataset_status_uidx ON registry.layer_styles US
 
 
 --
+-- Name: maps_status_idx; Type: INDEX; Schema: registry; Owner: -
+--
+
+CREATE INDEX maps_status_idx ON registry.maps USING btree (status);
+
+
+--
 -- Name: users users_set_updated_at; Type: TRIGGER; Schema: auth; Owner: -
 --
 
@@ -1097,6 +1153,13 @@ CREATE TRIGGER datasets_set_updated_at BEFORE UPDATE ON registry.datasets FOR EA
 --
 
 CREATE TRIGGER layer_styles_set_updated_at BEFORE UPDATE ON registry.layer_styles FOR EACH ROW EXECUTE FUNCTION registry.set_updated_at();
+
+
+--
+-- Name: maps maps_set_updated_at; Type: TRIGGER; Schema: registry; Owner: -
+--
+
+CREATE TRIGGER maps_set_updated_at BEFORE UPDATE ON registry.maps FOR EACH ROW EXECUTE FUNCTION registry.set_updated_at();
 
 
 --
@@ -1136,4 +1199,5 @@ ALTER TABLE ONLY registry.layer_styles
 
 INSERT INTO public.schema_migrations (version) VALUES
     ('20260728000001'),
-    ('20260728000002');
+    ('20260728000002'),
+    ('20260728000003');

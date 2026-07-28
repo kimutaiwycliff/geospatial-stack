@@ -14,10 +14,9 @@ adding one would double-handle the path and break the Caddy-proxied case.
 import json
 import os
 
+from app.db import get_connection
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
-from app.db import get_connection
 
 app = FastAPI(title="geoplatform-api")
 

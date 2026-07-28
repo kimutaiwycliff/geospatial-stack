@@ -1,0 +1,113 @@
+# CI per brief §2.4/§11: lint -> unit -> minimal compose-up integration
+# check -> image build. Deploy-on-tag is deliberately NOT wired here --
+# there's no VPS target yet (client chose local-only for now, brief §2.5),
+# so a deploy step would either be dead code or, worse, someone's tempted
+# to point it at something real before it's actually ready. Add it when
+# docs/deploy.md's runbook has an actual host to deploy to.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uvx ruff check --config ruff.toml .
+
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+
+  test-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+        working-directory: api
+      # Only /healthz is exercised -- it's deliberately the one endpoint
+      # with zero DB dependency (see app/main.py's comment on why), so this
+      # job needs no Postgres/Redis/MinIO services at all. Endpoints that
+      # DO need the DB are covered by the integration job below instead,
+      # against the real compose stack, rather than a mocked connection here.
+      - run: pytest tests/ -v
+        working-directory: api
+
+  build-images:
+    runs-on: ubuntu-latest
+    needs: [lint-python, lint-frontend, test-api]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build api worker web martin
+      # tiles-build/basemap images aren't part of docker-compose.yml (they're
+      # one-off tools invoked directly, see their own Dockerfiles) -- built
+      # separately so a break there doesn't block the services that
+      # actually run continuously.
+      - run: docker build -t geoplatform-basemap ./basemap
+      - run: docker build -t geoplatform-tiles-build ./tiles/build
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: build-images
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a throwaway .env
+        # CI only needs the stack to come up healthy -- no real S3/JWT
+        # secrets involved, so .env.example's placeholder values are used
+        # as-is rather than provisioning real credentials for a job that
+        # never talks to anything outside its own runner.
+        run: cp .env.example .env
+      - name: Bring up the core stack
+        run: docker compose up -d db storage redis migrate martin api web proxy
+      - name: Wait for every service to report healthy
+        # No sleep -- polls docker compose ps until nothing is still
+        # starting, then fails loudly (with logs) if anything ended up
+        # unhealthy rather than just timing out silently.
+        run: |
+          for i in $(seq 1 30); do
+            unhealthy=$(docker compose ps --format json | jq -s '[.[] | select(.Health == "unhealthy")] | length')
+            starting=$(docker compose ps --format json | jq -s '[.[] | select(.Health == "starting")] | length')
+            if [ "$unhealthy" != "0" ]; then
+              echo "A service reported unhealthy:"
+              docker compose ps
+              docker compose logs
+              exit 1
+            fi
+            if [ "$starting" = "0" ]; then
+              echo "All services healthy."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for services to become healthy:"
+          docker compose ps
+          docker compose logs
+          exit 1
+      - name: Smoke-test the public routes through Caddy
+        run: |
+          set -e
+          curl -sf http://localhost:8080/api/healthz
+          curl -sf -o /dev/null http://localhost:8080/
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs

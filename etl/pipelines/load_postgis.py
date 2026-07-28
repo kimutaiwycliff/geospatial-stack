@@ -10,6 +10,7 @@ import sys
 
 from common import get_duckdb_conn, get_pg_conn, s3_uri
 
+
 # psycopg2 identifiers can't safely take a hyphenated slug -- the registry
 # slug stays URL-friendly (hyphens) while the table name it maps to is a
 # plain SQL identifier (underscores). Keeping this mapping in one place

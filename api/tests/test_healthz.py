@@ -3,9 +3,8 @@ service healthcheck curls this exact path). Deliberately never touches
 Postgres -- /healthz has no DB dependency by design (see app/main.py's
 comment on why), so this test must never need a live database to pass.
 """
-from fastapi.testclient import TestClient
-
 from app.main import app
+from fastapi.testclient import TestClient
 
 client = TestClient(app)
 

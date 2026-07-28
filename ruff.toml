@@ -1,0 +1,17 @@
+# One config for every Python context in this repo (api/, etl/, tiles/build/,
+# basemap/) -- ruff only parses/lints, it doesn't need each context's own
+# installed deps resolved, so a single root-level pass covers all of them
+# without needing four separate CI steps.
+line-length = 120
+target-version = "py312"
+
+[lint]
+# Default ruleset (E/F) plus import-sort (I) and a few pyupgrade rules (UP) --
+# deliberately not the full "ALL" ruleset: this is a small team's working
+# codebase, not a library that needs maximal strictness, and overly strict
+# defaults just produce noise this build brief's own code style (heavy WHY
+# comments, f-string SQL building) would constantly need `# noqa` for.
+select = ["E", "F", "I", "UP"]
+ignore = [
+    "E501",  # line-length is a formatter's job, not a lint failure
+]

@@ -32,6 +32,10 @@ web/public/maplibre-gl-shared.mjs
 # that processes it, not a multi-GB copy of someone else's shapefiles.
 data/landmark/
 
+# pg_dump output (ops/backup/pg_backup.sh) -- a 190MB+ binary dump has no
+# business in git history; docs/backups.md documents the mechanism instead.
+ops/backup/dumps/
+
 # Editor/OS cruft
 .DS_Store
 

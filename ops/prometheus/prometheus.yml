@@ -1,0 +1,55 @@
+# Prometheus config for the single-VPS observability slice (brief §12).
+# Three scrape targets only -- api, martin, postgres-exporter -- because
+# those are the three things §12 actually names (tile latency, DB health,
+# job queue depth) plus the exporter that backs the queue-depth number.
+# Adding more targets "because we can" is exactly what the brief's
+# "add only what you'll actually watch" line is warning against.
+global:
+  # 15-30s is the brief's own range; 15s gives Grafana panels a reasonably
+  # fresh picture without hammering a single-VPS box that's also running
+  # Postgres, Martin, and the API on the same host.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Prometheus scraping itself -- lets you tell "Prometheus is down" apart
+  # from "a target is down" instead of just seeing an empty dashboard.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # FastAPI app -- prometheus-fastapi-instrumentator exposes this at /metrics
+  # (api/app/main.py). Container-to-container on the compose network, same
+  # port uvicorn already listens on (8000) -- no extra port to publish.
+  - job_name: api
+    static_configs:
+      - targets: ["api:8000"]
+
+  # Martin's own built-in Prometheus endpoint. Verified against the actual
+  # running container (not guessed from docs): it's `/_/metrics`, not
+  # `/metrics` -- Martin reserves the bare `/metrics` path prefix-free for
+  # tile/catalog routes, so its own instrumentation lives under the `/_/`
+  # admin namespace instead. Confirmed metric names include
+  # martin_http_requests_duration_seconds (histogram, labeled by endpoint
+  # e.g. "/{source_ids}/{z}/{x}/{y}") -- that's what backs the Grafana tile
+  # latency panel.
+  - job_name: martin
+    metrics_path: /_/metrics
+    static_configs:
+      - targets: ["martin:3000"]
+
+  # postgres_exporter, pointed at `db` via DATA_SOURCE_NAME (docker-compose.yml
+  # sets that from the same DATABASE_URL already in .env -- no separate
+  # credentials to keep in sync). Backs the DB-health dashboard panel
+  # (connections, query latency, pg_up).
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # Custom exporter (ops/README below / api/worker/queue_exporter.py) -- see
+  # that file's docstring for why this is a small hand-rolled Gauge instead
+  # of an off-the-shelf Celery Prometheus package. Backs the job-queue-depth
+  # panel.
+  - job_name: celery-queue
+    static_configs:
+      - targets: ["celery-exporter:9808"]

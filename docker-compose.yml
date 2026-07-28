@@ -138,6 +138,64 @@ services:
     depends_on:
       - api
 
+  # --- Observability: Prometheus + exporters + Grafana (brief §12) ----------
+  # Postgres exporter -- DATA_SOURCE_NAME reuses the same DATABASE_URL .env
+  # already defines for dbmate/Martin/the API, rather than a second set of
+  # DB credentials to keep in sync. postgres_exporter accepts the
+  # `postgres://` scheme fine; no need for a `postgresql://` rewrite.
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: ${DATABASE_URL}
+
+  # Hand-rolled Celery queue-depth exporter -- see api/worker/queue_exporter.py
+  # for why (no maintained off-the-shelf Celery Prometheus exporter exists).
+  # Shares the api/worker image since it's a few lines of Python that reads
+  # the same REDIS_URL the worker already uses as its broker.
+  celery-exporter:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    command: ["python", "-m", "worker.queue_exporter"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+      - martin
+      - postgres-exporter
+      - celery-exporter
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      # Provisioning-via-files (datasource + dashboard both load from
+      # ops/grafana/provisioning on boot -- see that directory) is the part
+      # that must not require manual UI setup; admin login itself still
+      # needs *some* credential, so it comes from .env like every other
+      # service credential in this stack rather than Grafana's own
+      # "admin/admin, change it later" default.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      # No public sign-up / anonymous access on a box that's otherwise
+      # locked down to Caddy-fronted traffic only (brief §10).
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
   # --- Edge: TLS, routing, compression, cache, rate limit --------------------
   # Only this service publishes host ports -- PostGIS/Redis/MinIO/API are
   # reachable only on the internal Docker network (brief §10).
@@ -161,3 +219,5 @@ volumes:
   miniodata:
   caddy_data:
   caddy_config:
+  prometheus_data:
+  grafana_data:

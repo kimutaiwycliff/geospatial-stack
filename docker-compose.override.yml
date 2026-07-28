@@ -27,3 +27,14 @@ services:
   flower:
     ports:
       - "5555:5555"
+
+  # Prometheus's own web UI (/targets, /graph) -- purely a dev convenience
+  # for checking scrape health directly; the VPS deploy never needs this
+  # published since Grafana is the thing anyone actually looks at day to day.
+  prometheus:
+    ports:
+      - "9090:9090"
+
+  grafana:
+    ports:
+      - "3001:3000"

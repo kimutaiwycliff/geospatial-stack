@@ -14,11 +14,33 @@ adding one would double-handle the path and break the Caddy-proxied case.
 import json
 import os
 
+import sentry_sdk
 from app.db import get_connection
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
+
+# Sentry (brief §12). No Sentry project exists yet for this client -- init
+# with an empty/missing DSN is a documented no-op in sentry-sdk (it skips
+# transport setup entirely), so this must NOT be gated behind an `if DSN:`
+# check that could rot: calling init() unconditionally is what guarantees
+# error reporting turns on the moment a real DSN lands in .env, with zero
+# code change. traces_sample_rate=0 keeps this errors-only for now --
+# performance tracing is a separate, paid-for decision the client hasn't
+# made.
+sentry_sdk.init(
+    dsn=os.environ.get("SENTRY_DSN", ""),
+    traces_sample_rate=0,
+)
 
 app = FastAPI(title="geoplatform-api")
+
+# Per-route request count/latency histograms at /metrics (brief §12: "tile
+# latency, DB health, job queue depth" -- this is the API-side slice of
+# that; Martin and postgres-exporter cover the other two). `.instrument()`
+# must run before `.expose()` and before the app starts serving, which is
+# why this sits at import time rather than inside a startup event.
+Instrumentator().instrument(app).expose(app)
 
 # The Vite dev server runs on its own port and needs to call this API
 # directly (bypassing Caddy) during local development -- CORS has to allow

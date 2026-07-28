@@ -8,6 +8,20 @@ uvicorn[standard]
 psycopg2-binary
 pydantic
 
+# Observability (brief §12). prometheus-fastapi-instrumentator over hand-rolled
+# middleware -- it gives per-route request count/latency histograms (what §12
+# actually asks for) out of the box, correctly excludes /metrics from its own
+# counters, and is one line to wire (app/main.py). sentry-sdk's FastAPI +
+# Celery integrations both no-op safely with no DSN set (see app/main.py /
+# worker/celery_app.py) -- there's no real Sentry project yet, so it must not
+# do anything, error or otherwise, until SENTRY_DSN is actually set.
+prometheus-fastapi-instrumentator
+sentry-sdk[fastapi,celery]
+# Backs worker/queue_exporter.py's Celery-queue-depth Gauge -- see that
+# file's docstring for why this is a few lines against Redis directly
+# rather than an off-the-shelf Celery Prometheus package.
+prometheus-client
+
 # Phase 1 (brief §1.2): this image is shared by `api`, `worker`, and `flower`
 # (docker-compose.yml overrides CMD per service), so the worker's own deps
 # live here too rather than a separate requirements file for one more image.

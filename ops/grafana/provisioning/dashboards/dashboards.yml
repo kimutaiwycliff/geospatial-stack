@@ -1,0 +1,18 @@
+# Dashboard *provider* config -- tells Grafana to load any dashboard JSON
+# dropped into this same directory automatically. The actual dashboard
+# (geoplatform-overview.json, next to this file) is the content; this file
+# is just the pointer Grafana's provisioning system requires.
+apiVersion: 1
+
+providers:
+  - name: geoplatform
+    orgId: 1
+    folder: ""
+    type: file
+    # Re-reads the JSON on an interval so editing the file (or `docker
+    # compose restart grafana`) is enough -- no "delete and re-import"
+    # dance needed while iterating on panels.
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

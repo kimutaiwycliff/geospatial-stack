@@ -11,7 +11,23 @@ functions register.
 """
 import os
 
+import sentry_sdk
 from celery import Celery
+from sentry_sdk.integrations.celery import CeleryIntegration
+
+# Sentry (brief §12), worker side. FastAPI has its own sentry_sdk.init() in
+# app/main.py -- API and worker are separate processes (separate
+# containers), so each needs its own init() call even though they share one
+# Docker image. Same no-DSN-means-no-op contract as the API: this must not
+# error or send anything until a real SENTRY_DSN is set. CeleryIntegration
+# is what turns an uncaught exception inside a @celery_app.task (tiling,
+# ingest, curate -- worker/tasks.py) into a Sentry event instead of just a
+# Celery FAILURE state that only Flower sees.
+sentry_sdk.init(
+    dsn=os.environ.get("SENTRY_DSN", ""),
+    integrations=[CeleryIntegration()],
+    traces_sample_rate=0,
+)
 
 celery_app = Celery(
     "geoplatform",

@@ -1,0 +1,18 @@
+# Grafana datasource provisioning (brief §12: dashboards must exist on
+# `docker compose up`, not require manual "Add data source" clicking).
+# Grafana loads every *.yml under provisioning/datasources on startup --
+# one Prometheus datasource is all this stack has to point at.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Container-to-container DNS name on the compose network -- same pattern
+    # as every other cross-service URL in this repo (db, redis, storage, ...).
+    url: http://prometheus:9090
+    isDefault: true
+    # editable: false would block hand-tweaking a query in the UI while
+    # debugging a panel; provisioning re-applies this file on every restart
+    # anyway, so there's no real risk of drift sticking around.
+    editable: true

@@ -1,4 +1,10 @@
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { createUpload, UnauthorizedError, type UploadCreateResult } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
 
@@ -15,6 +21,13 @@ const ACCEPTED_EXTENSIONS = [".geojson", ".json", ".gpkg", ".parquet"];
  * Closes itself and hands the created `{slug, tier_status}` back to
  * AdminDashboard, which is the one that knows how to select it and refresh
  * the list so DatasetDetail's new Publishing tab can start polling.
+ *
+ * `Dialog` (Radix, via shadcn) replaces the hand-rolled fixed-overlay div
+ * this used to be -- `open` is always true here since AdminDashboard only
+ * mounts this component at all while `uploadModalOpen` is true; `onClose`
+ * is passed straight through to `onOpenChange` so clicking the overlay,
+ * pressing Escape, or the built-in close button all route through the same
+ * cleanup AdminDashboard's own Cancel button used to trigger manually.
  */
 export function UploadDatasetModal({
   token,
@@ -61,72 +74,59 @@ export function UploadDatasetModal({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4">
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-slate-200 bg-white p-6 shadow-lg"
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Upload dataset</h2>
-          <button type="button" onClick={onClose} className="text-2xl leading-none text-slate-400 hover:text-slate-600">
-            &times;
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>Upload dataset</DialogTitle>
+          </DialogHeader>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700">File</span>
-          <input
-            type="file"
-            required
-            accept={ACCEPTED_EXTENSIONS.join(",")}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="text-sm"
-          />
-          <span className="text-xs text-slate-400">Accepted: {ACCEPTED_EXTENSIONS.join(", ")} only.</span>
-        </label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="upload-file">File</Label>
+            <Input
+              id="upload-file"
+              type="file"
+              required
+              accept={ACCEPTED_EXTENSIONS.join(",")}
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="h-auto py-1.5"
+            />
+            <span className="text-xs text-muted-foreground">Accepted: {ACCEPTED_EXTENSIONS.join(", ")} only.</span>
+          </div>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700">Name</span>
-          <input
-            type="text"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Used to derive the dataset's slug"
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="upload-name">Name</Label>
+            <Input
+              id="upload-name"
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Used to derive the dataset's slug"
+            />
+          </div>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700">Description (optional)</span>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="upload-description">Description (optional)</Label>
+            <Textarea id="upload-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+          </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-        <div className="flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? "Uploading…" : "Upload"}
-          </button>
-        </div>
-      </form>
-    </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Uploading…" : "Upload"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Geoplatform -- Indigenous &amp; Community Lands</title>
+    <script>
+      // Applies the dark class BEFORE React mounts (src/lib/theme.tsx does
+      // the same check on every subsequent render) -- without this, every
+      // page load briefly paints in light mode and then flips to dark once
+      // ThemeProvider's effect runs, a visible flash on a stored/OS dark
+      // preference. Duplicated logic is the accepted tradeoff for a
+      // synchronous, pre-hydration script tag; keep this in sync with
+      // theme.tsx's getSystemTheme()/STORAGE_KEY if either changes.
+      (function () {
+        var stored = localStorage.getItem("theme");
+        var dark = stored === "dark" || (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+      })();
+    </script>
   </head>
   <body>
     <!-- MapLibre needs an element with real dimensions to attach its canvas

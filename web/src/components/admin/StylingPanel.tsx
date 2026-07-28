@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { publishStyle, saveDraftStyle, UnauthorizedError, type DraftStyle, type StyleJson } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
 
@@ -85,52 +88,67 @@ export function StylingPanel({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <label className="flex items-center gap-3 text-sm">
-        <span className="w-24 font-medium text-slate-700">Fill color</span>
+    <div className="flex flex-col gap-4 pt-4">
+      <div className="flex items-center gap-3">
+        <Label htmlFor="fill-color" className="w-24">
+          Fill color
+        </Label>
+        {/* Native color input stays as-is (brief: shadcn has no color
+            picker, and pulling in react-colorful is explicitly out of
+            scope) -- only its border/sizing follows the same rounded/
+            border-input look as every other control here. */}
         <input
+          id="fill-color"
           type="color"
           value={style["fill-color"]}
           onChange={(e) => setStyle((prev) => ({ ...prev, "fill-color": e.target.value }))}
-          className="h-8 w-14 cursor-pointer rounded border border-slate-300"
+          className="h-8 w-14 cursor-pointer rounded-md border border-input"
         />
-        <span className="font-mono text-xs text-slate-500">{style["fill-color"]}</span>
-      </label>
+        <span className="font-mono text-xs text-muted-foreground">{style["fill-color"]}</span>
+      </div>
 
-      <label className="flex items-center gap-3 text-sm">
-        <span className="w-24 font-medium text-slate-700">Fill opacity</span>
+      <div className="flex items-center gap-3">
+        <Label htmlFor="fill-opacity" className="w-24">
+          Fill opacity
+        </Label>
         <input
+          id="fill-opacity"
           type="range"
           min={0}
           max={1}
           step={0.05}
           value={style["fill-opacity"]}
           onChange={(e) => setStyle((prev) => ({ ...prev, "fill-opacity": Number(e.target.value) }))}
-          className="flex-1"
+          className="flex-1 accent-primary"
         />
-        <span className="w-10 font-mono text-xs text-slate-500">{style["fill-opacity"].toFixed(2)}</span>
-      </label>
+        <span className="w-10 font-mono text-xs text-muted-foreground">{style["fill-opacity"].toFixed(2)}</span>
+      </div>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSaveDraft}
-          disabled={saving}
-          className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
+        <Button type="button" variant="outline" onClick={handleSaveDraft} disabled={saving}>
           {saving ? "Saving…" : "Save draft"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={handlePublish}
           disabled={!hasDraft || publishing}
           title={hasDraft ? undefined : "Save a draft before publishing"}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {publishing ? "Publishing…" : "Publish"}
-        </button>
+        </Button>
         {message && (
-          <p className={`text-sm ${message.kind === "success" ? "text-green-700" : "text-red-600"}`}>{message.text}</p>
+          <Alert
+            variant={message.kind === "error" ? "destructive" : "default"}
+            className={
+              message.kind === "success"
+                ? "w-auto border-green-600/30 bg-transparent px-3 py-1.5 text-green-700 dark:border-green-500/30 dark:text-green-400"
+                : "w-auto px-3 py-1.5"
+            }
+          >
+            <AlertDescription className={message.kind === "success" ? "text-green-700 dark:text-green-400" : undefined}>
+              {message.text}
+            </AlertDescription>
+          </Alert>
         )}
       </div>
     </div>

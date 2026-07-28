@@ -16,6 +16,16 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* shadcn/ui's CLI vendors components under src/components/ui and
+       src/lib/utils.ts using bare `@/...` imports (its own convention,
+       matching every shadcn doc/example) -- this alias is what makes those
+       imports resolve, both for tsc (here) and at runtime (vite.config.ts's
+       matching resolve.alias). */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
     /* Strict on purpose -- this is a real client build, not a throwaway
        prototype, and Phase 1+ will build on top of whatever types Phase 0
        leaves behind. */

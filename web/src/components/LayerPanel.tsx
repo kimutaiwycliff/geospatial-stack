@@ -1,3 +1,4 @@
+import { Switch } from "@/components/ui/switch";
 import { isMappable, type Dataset } from "../lib/api";
 import { paletteColor } from "../lib/mapSources";
 import { GovernanceBadges } from "./GovernanceBadges";
@@ -10,7 +11,7 @@ interface LayerPanelProps {
 
 /**
  * Replaces Phase 0's binary SourceToggle (Martin vs. PMTiles) with a real
- * layer list -- one checkbox per geometry dataset, driven entirely by
+ * layer list -- one toggle per geometry dataset, driven entirely by
  * `/datasets` (brief §6.2 "layer toggles"). Never hardcodes "2 layers":
  * this renders however many mappable rows the registry returns today, and
  * will render more the moment `landmark-indigenous-community-lands` (or
@@ -26,21 +27,27 @@ export function LayerPanel({ datasets, visibleSlugs, onToggle }: LayerPanelProps
   const mappable = datasets.filter(isMappable);
 
   if (mappable.length === 0) {
-    return <p className="text-sm text-slate-500">No map layers published yet.</p>;
+    return <p className="text-sm text-muted-foreground">No map layers published yet.</p>;
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Layers</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Layers</h2>
       <ul className="flex flex-col gap-3">
         {mappable.map((dataset, index) => (
-          <li key={dataset.slug} className="rounded-md border border-slate-200 p-2">
-            <label className="flex cursor-pointer items-start gap-2">
-              <input
-                type="checkbox"
-                className="mt-1"
+          <li key={dataset.slug} className="rounded-md border border-border p-2">
+            <div className="flex items-start gap-2">
+              {/* Checkbox -> Switch: a layer toggle is an on/off state change
+                  (not a form field being validated/submitted), which is
+                  exactly what Switch communicates at a glance -- and it's
+                  the one shadcn primitive installed for this exact shape of
+                  control, used identically for MapEditor's per-layer
+                  visibility toggle below. */}
+              <Switch
+                className="mt-0.5"
                 checked={visibleSlugs.includes(dataset.slug)}
-                onChange={() => onToggle(dataset.slug)}
+                onCheckedChange={() => onToggle(dataset.slug)}
+                aria-label={`Toggle ${dataset.name} layer`}
               />
               <span className="flex-1">
                 <span className="flex items-center gap-2">
@@ -49,13 +56,13 @@ export function LayerPanel({ datasets, visibleSlugs, onToggle }: LayerPanelProps
                     style={{ backgroundColor: paletteColor(index) }}
                     aria-hidden
                   />
-                  <span className="text-sm font-medium text-slate-800">{dataset.name}</span>
+                  <span className="text-sm font-medium text-foreground">{dataset.name}</span>
                 </span>
                 <span className="mt-1 block">
                   <GovernanceBadges dataset={dataset} compact />
                 </span>
               </span>
-            </label>
+            </div>
           </li>
         ))}
       </ul>

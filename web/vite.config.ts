@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -8,6 +9,15 @@ import tailwindcss from "@tailwindcss/vite";
 // itself via Lightning CSS, so there's nothing else to wire up here.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+
+  // Mirrors tsconfig.json's "@/*" path -- tsc only type-checks against the
+  // tsconfig alias, it doesn't teach Vite's own bundler to resolve it at
+  // build/dev time, so both need the same mapping independently.
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
 
   // No proxy for /api or /tiles here on purpose (see src/lib/config.ts) --
   // Phase 0 hits Martin/FastAPI/MinIO directly at their docker-compose

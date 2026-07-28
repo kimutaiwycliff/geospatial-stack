@@ -1,4 +1,10 @@
 import { useEffect, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { updateGovernance, UnauthorizedError, type AdminDataset, type GovernancePatch } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
 
@@ -99,73 +105,77 @@ export function GovernanceForm({ token, dataset, onSaved }: { token: string; dat
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-slate-700">Description</span>
-        <textarea
+    <div className="flex flex-col gap-4 pt-4">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="gov-description">Description</Label>
+        <Textarea
+          id="gov-description"
           value={values.description}
           onChange={(e) => setField("description", e.target.value)}
           rows={3}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
         />
-      </label>
+      </div>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-slate-700">Source</span>
-        <input
-          type="text"
-          value={values.source}
-          onChange={(e) => setField("source", e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-        />
-      </label>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="gov-source">Source</Label>
+        <Input id="gov-source" type="text" value={values.source} onChange={(e) => setField("source", e.target.value)} />
+      </div>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-slate-700">License</span>
-        <input
-          type="text"
-          value={values.license}
-          onChange={(e) => setField("license", e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-        />
-      </label>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="gov-license">License</Label>
+        <Input id="gov-license" type="text" value={values.license} onChange={(e) => setField("license", e.target.value)} />
+      </div>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-slate-700">Attribution</span>
-        <input
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="gov-attribution">Attribution</Label>
+        <Input
+          id="gov-attribution"
           type="text"
           value={values.attribution}
           onChange={(e) => setField("attribution", e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
         />
-      </label>
+      </div>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-slate-700">Sensitivity</span>
-        <select
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="gov-sensitivity">Sensitivity</Label>
+        {/* shadcn Select is uncontrolled-value + onValueChange, not a native
+            <select>'s onChange(e) -- the one genuinely-required adapter the
+            brief calls out (§1 exception), everything else about the diff/
+            save logic above is untouched. */}
+        <Select
           value={values.sensitivity}
-          onChange={(e) => setField("sensitivity", e.target.value as AdminDataset["sensitivity"])}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm capitalize focus:border-blue-500 focus:outline-none"
+          onValueChange={(value) => setField("sensitivity", value as AdminDataset["sensitivity"])}
         >
-          {SENSITIVITY_OPTIONS.map((opt) => (
-            <option key={opt} value={opt} className="capitalize">
-              {opt}
-            </option>
-          ))}
-        </select>
-      </label>
+          <SelectTrigger id="gov-sensitivity" className="w-full capitalize">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SENSITIVITY_OPTIONS.map((opt) => (
+              <SelectItem key={opt} value={opt} className="capitalize">
+                {opt}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
+        <Button type="button" onClick={handleSave} disabled={saving}>
           {saving ? "Saving…" : "Save"}
-        </button>
+        </Button>
         {message && (
-          <p className={`text-sm ${message.kind === "success" ? "text-green-700" : "text-red-600"}`}>{message.text}</p>
+          <Alert
+            variant={message.kind === "error" ? "destructive" : "default"}
+            className={
+              message.kind === "success"
+                ? "w-auto border-green-600/30 bg-transparent px-3 py-1.5 text-green-700 dark:border-green-500/30 dark:text-green-400"
+                : "w-auto px-3 py-1.5"
+            }
+          >
+            <AlertDescription className={message.kind === "success" ? "text-green-700 dark:text-green-400" : undefined}>
+              {message.text}
+            </AlertDescription>
+          </Alert>
         )}
       </div>
     </div>

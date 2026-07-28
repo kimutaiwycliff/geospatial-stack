@@ -134,7 +134,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       new Popup({ closeButton: true })
         .setLngLat(e.lngLat)
         .setHTML(
-          `<div class="text-sm"><strong>${label}</strong><br/><span class="text-slate-500">${datasetName}</span></div>`,
+          `<div class="text-sm"><strong>${label}</strong><br/><span class="text-muted-foreground">${datasetName}</span></div>`,
         )
         .addTo(map);
 

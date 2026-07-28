@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Input } from "@/components/ui/input";
 import type { CountrySummary } from "../lib/api";
 
 interface CountrySearchProps {
@@ -13,7 +14,9 @@ interface CountrySearchProps {
  * instead of a shadcn Combobox -- pulling in Radix's popover/command
  * machinery for one text input wasn't worth it given the time budget, and
  * this covers the same keyboard/click affordances at this list size (a few
- * hundred rows, not thousands).
+ * hundred rows, not thousands). The text input itself IS swapped for
+ * shadcn's `Input` (below) -- only the listbox/dropdown wrapper stays
+ * hand-rolled.
  */
 export function CountrySearch({ countries, selectedIso, onSelect }: CountrySearchProps) {
   const [query, setQuery] = useState("");
@@ -29,8 +32,8 @@ export function CountrySearch({ countries, selectedIso, onSelect }: CountrySearc
 
   return (
     <div className="relative">
-      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Country</h2>
-      <input
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Country</h2>
+      <Input
         type="text"
         value={query}
         onChange={(e) => {
@@ -39,14 +42,13 @@ export function CountrySearch({ countries, selectedIso, onSelect }: CountrySearc
         }}
         onFocus={() => setOpen(true)}
         placeholder={selected ? (selected.pop_country as string) : "Search countries..."}
-        className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
       />
       {selected && !open && (
-        <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+        <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
           <span>Showing: {selected.pop_country as string}</span>
           <button
             type="button"
-            className="text-blue-600 hover:underline"
+            className="text-primary hover:underline"
             onClick={() => {
               onSelect(null);
               setQuery("");
@@ -57,12 +59,12 @@ export function CountrySearch({ countries, selectedIso, onSelect }: CountrySearc
         </div>
       )}
       {open && matches.length > 0 && (
-        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
+        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-popover shadow-lg">
           {matches.map((c) => (
             <li key={c.iso_code}>
               <button
                 type="button"
-                className="block w-full px-3 py-1.5 text-left text-sm hover:bg-blue-50"
+                className="block w-full px-3 py-1.5 text-left text-sm text-popover-foreground hover:bg-accent"
                 onClick={() => {
                   onSelect(c);
                   setQuery("");

@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AlertCircleIcon } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { UnauthorizedError } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
+import { ThemeToggle } from "../ThemeToggle";
 
 /**
  * Admin sign-in (brief §10). Deliberately just email + password + one
@@ -36,46 +42,53 @@ export function AdminLogin() {
   }
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-slate-50 px-6">
+    <div className="relative flex h-screen w-screen items-center justify-center bg-background px-6">
+      {/* Even a login page should respect the visitor's OS/stored theme
+          preference before they've done anything else (brief: "every page
+          needs the theme toggle"). */}
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <form
         onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
+        className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-border bg-card p-6 text-card-foreground shadow-sm"
       >
-        <h1 className="text-lg font-semibold text-slate-900">Admin sign in</h1>
+        <h1 className="text-lg font-semibold text-foreground">Admin sign in</h1>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700">Email</span>
-          <input
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="admin-email">Email</Label>
+          <Input
+            id="admin-email"
             type="email"
             required
             autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
           />
-        </label>
+        </div>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700">Password</span>
-          <input
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="admin-password">Password</Label>
+          <Input
+            id="admin-password"
             type="password"
             required
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
           />
-        </label>
+        </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircleIcon className="size-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
+        <Button type="submit" disabled={submitting}>
           {submitting ? "Signing in…" : "Sign in"}
-        </button>
+        </Button>
       </form>
     </div>
   );

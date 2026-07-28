@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   fetchAdminDatasets,
   fetchDraftStyles,
@@ -9,13 +11,22 @@ import {
   type UploadCreateResult,
 } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
+import { ThemeToggle } from "../ThemeToggle";
 import { DatasetDetail } from "./DatasetDetail";
 import { UploadDatasetModal } from "./UploadDatasetModal";
 
-const TIER_STYLES: Record<AdminDataset["tier_status"], string> = {
-  raw: "bg-slate-100 text-slate-600",
-  curated: "bg-amber-100 text-amber-700",
-  published: "bg-green-100 text-green-700",
+/**
+ * tier_status -> Badge variant. This exact mapping (raw/curated/published
+ * -> outline/secondary/default) is the ONE convention used everywhere
+ * tier_status appears (also MapEditor's dataset-picker rows) -- "published"
+ * gets the same "default" treatment AdminMapsPage's map status uses for its
+ * own "published" value, so the two lists read as the same visual language
+ * even though they're different fields on different resources.
+ */
+const TIER_BADGE_VARIANT: Record<AdminDataset["tier_status"], "outline" | "secondary" | "default"> = {
+  raw: "outline",
+  curated: "secondary",
+  published: "default",
 };
 
 /**
@@ -28,15 +39,15 @@ const TIER_STYLES: Record<AdminDataset["tier_status"], string> = {
  * published dataset, or a pre-Phase-4 row with no report at all, has
  * nothing upload-flow-specific worth calling out here.
  */
-function validationBadge(dataset: AdminDataset): { text: string; className: string } | null {
+function validationBadge(dataset: AdminDataset): { text: string; variant: "outline" | "secondary" | "destructive" } | null {
   if (dataset.tier_status === "raw" && dataset.validation_report === null) {
-    return { text: "validating…", className: "bg-slate-100 text-slate-500" };
+    return { text: "validating…", variant: "outline" };
   }
   if (dataset.tier_status === "curated" && dataset.validation_report?.passed === true) {
-    return { text: "awaiting approval", className: "bg-blue-100 text-blue-700" };
+    return { text: "awaiting approval", variant: "secondary" };
   }
   if (dataset.tier_status === "curated" && dataset.validation_report?.passed === false) {
-    return { text: "validation failed", className: "bg-red-100 text-red-700" };
+    return { text: "validation failed", variant: "destructive" };
   }
   return null;
 }
@@ -123,28 +134,25 @@ export function AdminDashboard() {
 
   return (
     <div className="flex h-screen w-screen flex-col md:flex-row">
-      <div className="w-full shrink-0 overflow-y-auto border-b border-slate-200 bg-white md:h-full md:w-80 md:border-b-0 md:border-r">
-        <div className="flex items-center justify-between border-b border-slate-100 p-4">
-          <h1 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Datasets</h1>
-          <div className="flex items-center gap-3 text-xs">
-            <Link to="/admin/maps" className="text-blue-600 hover:underline">
-              Maps
-            </Link>
-            <button type="button" onClick={logout} className="text-blue-600 hover:underline">
+      <div className="w-full shrink-0 overflow-y-auto border-b border-border bg-background md:h-full md:w-80 md:border-b-0 md:border-r">
+        <div className="flex items-center justify-between border-b border-border p-4">
+          <h1 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Datasets</h1>
+          <div className="flex items-center gap-1.5">
+            <Button variant="link" size="sm" asChild>
+              <Link to="/admin/maps">Maps</Link>
+            </Button>
+            <Button variant="link" size="sm" onClick={logout}>
               Sign out
-            </button>
+            </Button>
+            <ThemeToggle />
           </div>
         </div>
-        <div className="border-b border-slate-100 p-4">
-          <button
-            type="button"
-            onClick={() => setUploadModalOpen(true)}
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
+        <div className="border-b border-border p-4">
+          <Button variant="outline" className="w-full" onClick={() => setUploadModalOpen(true)}>
             Upload dataset
-          </button>
+          </Button>
         </div>
-        {loadError && <p className="p-4 text-sm text-red-600">{loadError}</p>}
+        {loadError && <p className="p-4 text-sm text-destructive">{loadError}</p>}
         <ul className="flex flex-col">
           {datasets.map((dataset) => {
             const badge = validationBadge(dataset);
@@ -153,17 +161,17 @@ export function AdminDashboard() {
                 <button
                   type="button"
                   onClick={() => setSelectedSlug(dataset.slug)}
-                  className={`flex w-full flex-col gap-1 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${
-                    selectedSlug === dataset.slug ? "bg-blue-50" : ""
+                  className={`flex w-full flex-col gap-1 border-b border-border px-4 py-3 text-left hover:bg-muted ${
+                    selectedSlug === dataset.slug ? "bg-accent" : ""
                   }`}
                 >
-                  <span className="text-sm font-medium text-slate-800">{dataset.name}</span>
+                  <span className="text-sm font-medium text-foreground">{dataset.name}</span>
                   <span className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className={`rounded-full px-2 py-0.5 font-medium capitalize ${TIER_STYLES[dataset.tier_status]}`}>
+                    <Badge variant={TIER_BADGE_VARIANT[dataset.tier_status]} className="capitalize">
                       {dataset.tier_status}
-                    </span>
-                    {badge && <span className={`rounded-full px-2 py-0.5 font-medium ${badge.className}`}>{badge.text}</span>}
-                    <span className="text-slate-400">{dataset.slug}</span>
+                    </Badge>
+                    {badge && <Badge variant={badge.variant}>{badge.text}</Badge>}
+                    <span className="text-muted-foreground">{dataset.slug}</span>
                   </span>
                 </button>
               </li>
@@ -173,7 +181,7 @@ export function AdminDashboard() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        {!selected && <p className="text-sm text-slate-500">Select a dataset to edit its governance and styling.</p>}
+        {!selected && <p className="text-sm text-muted-foreground">Select a dataset to edit its governance and styling.</p>}
         {selected && (
           <DatasetDetail
             token={authToken}

@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchAuditLog, UnauthorizedError, type AuditLogEntry } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
 
@@ -25,7 +28,9 @@ function summarizeDetails(details: Record<string, unknown>): string {
  * Audit history for one dataset (brief point 7). Collapsed by default and
  * fetched lazily on first expand -- most dataset-detail visits are a quick
  * governance tweak or style tweak, not a history review, so this avoids an
- * extra request on every single dataset selection.
+ * extra request on every single dataset selection. Rows are a textbook
+ * shadcn `Table` -- a genuinely tabular action/actor/timestamp log, unlike
+ * the free-form `<ul>` this used to be.
  */
 export function AuditLogPanel({ token, slug }: { token: string; slug: string }) {
   const { logout } = useAdminAuth();
@@ -53,37 +58,47 @@ export function AuditLogPanel({ token, slug }: { token: string; slug: string }) 
   }, [expanded, entries, token, slug, logout]);
 
   return (
-    <div className="rounded-md border border-slate-200">
-      <button
+    <div className="rounded-md border border-border">
+      <Button
         type="button"
+        variant="ghost"
         onClick={() => setExpanded((prev) => !prev)}
-        className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        className="w-full justify-between rounded-b-none px-3 py-2 font-medium text-foreground"
       >
         <span>Audit history</span>
-        <span className="text-slate-400">{expanded ? "▲" : "▼"}</span>
-      </button>
+        {expanded ? <ChevronUpIcon className="size-4" /> : <ChevronDownIcon className="size-4" />}
+      </Button>
       {expanded && (
-        <div className="border-t border-slate-100 p-3">
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {!error && entries === null && <p className="text-sm text-slate-500">Loading&hellip;</p>}
-          {entries !== null && entries.length === 0 && <p className="text-sm text-slate-500">No history yet.</p>}
+        <div className="border-t border-border p-3">
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          {!error && entries === null && <p className="text-sm text-muted-foreground">Loading&hellip;</p>}
+          {entries !== null && entries.length === 0 && <p className="text-sm text-muted-foreground">No history yet.</p>}
           {entries !== null && entries.length > 0 && (
-            <ul className="flex flex-col gap-2.5">
-              {entries.map((entry) => (
-                <li key={entry.id} className="text-sm">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="font-medium text-slate-800">{ACTION_LABELS[entry.action] ?? entry.action}</span>
-                    <span className="text-xs text-slate-500">{entry.actor_email}</span>
-                    <span className="text-xs text-slate-400">{new Date(entry.created_at).toLocaleString()}</span>
-                  </div>
-                  {summarizeDetails(entry.details) && (
-                    <p className="mt-0.5 truncate text-xs text-slate-500" title={summarizeDetails(entry.details)}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Actor</TableHead>
+                  <TableHead>When</TableHead>
+                  <TableHead>Details</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="font-medium text-foreground">{ACTION_LABELS[entry.action] ?? entry.action}</TableCell>
+                    <TableCell className="text-muted-foreground">{entry.actor_email}</TableCell>
+                    <TableCell className="text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</TableCell>
+                    <TableCell
+                      className="max-w-xs truncate whitespace-normal text-muted-foreground"
+                      title={summarizeDetails(entry.details)}
+                    >
                       {summarizeDetails(entry.details)}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </div>
       )}

@@ -1,3 +1,5 @@
+import { XIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { Dataset } from "../lib/api";
 import type { Selection } from "../lib/selection";
 import { GovernanceBadges } from "./GovernanceBadges";
@@ -15,16 +17,16 @@ const HIDDEN_KEYS = new Set(["geom", "geometry"]);
 function AttributeTable({ record }: { record: Record<string, unknown> }) {
   const rows = Object.entries(record).filter(([key, value]) => !HIDDEN_KEYS.has(key) && value !== null && value !== "");
   if (rows.length === 0) {
-    return <p className="text-sm text-slate-500">No attributes to show.</p>;
+    return <p className="text-sm text-muted-foreground">No attributes to show.</p>;
   }
   return (
     <dl className="grid grid-cols-[minmax(0,40%)_1fr] gap-x-3 gap-y-1.5 text-sm">
       {rows.map(([key, value]) => (
         <div className="contents" key={key}>
-          <dt className="truncate font-medium text-slate-500" title={key}>
+          <dt className="truncate font-medium text-muted-foreground" title={key}>
             {key}
           </dt>
-          <dd className="break-words text-slate-800">{String(value)}</dd>
+          <dd className="break-words text-foreground">{String(value)}</dd>
         </div>
       ))}
     </dl>
@@ -42,24 +44,24 @@ function AttributeTable({ record }: { record: Record<string, unknown> }) {
  *   - "country": the full `/countries/{iso}`-shaped row from `/countries`,
  *     grouped by its pop_, pct_, tsic_, tsii_ prefixes so 100+ flat columns
  *     read as four related indicator groups instead of one giant table.
+ *
+ * Stays a plain `<aside>` rather than a shadcn `Card` -- this IS the fixed
+ * column/drawer itself (same role as MapPage's sidebar), not a floating
+ * card sitting inside one; Card's own rounded-corner/ring styling would
+ * look wrong stretched edge-to-edge across a whole pane.
  */
 export function SidePanel({ selection, datasets, onClose }: SidePanelProps) {
   if (!selection) return null;
 
   return (
-    <aside className="flex h-full w-full flex-col gap-3 overflow-y-auto border-l border-slate-200 bg-white p-4">
+    <aside className="flex h-full w-full flex-col gap-3 overflow-y-auto border-l border-border bg-background p-4">
       <div className="flex items-start justify-between gap-2">
-        <h2 className="text-base font-semibold text-slate-900">
+        <h2 className="text-base font-semibold text-foreground">
           {selection.kind === "feature" ? (selection.detail?.name as string | undefined) ?? "Feature" : (selection.summary.pop_country as string)}
         </h2>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close panel"
-          className="rounded-full px-2 py-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-        >
-          &times;
-        </button>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close panel">
+          <XIcon className="size-4" />
+        </Button>
       </div>
 
       {selection.kind === "feature" && <FeaturePanelBody selection={selection} datasets={datasets} />}
@@ -79,14 +81,14 @@ function FeaturePanelBody({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{selection.datasetName}</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{selection.datasetName}</p>
       {dataset && (
-        <div className="rounded-md bg-slate-50 p-3">
+        <div className="rounded-md bg-muted p-3">
           <GovernanceBadges dataset={dataset} />
         </div>
       )}
-      {selection.error && <p className="text-sm text-red-600">{selection.error}</p>}
-      {!selection.error && !selection.detail && <p className="text-sm text-slate-500">Loading&hellip;</p>}
+      {selection.error && <p className="text-sm text-destructive">{selection.error}</p>}
+      {!selection.error && !selection.detail && <p className="text-sm text-muted-foreground">Loading&hellip;</p>}
       {selection.detail && <AttributeTable record={selection.detail} />}
     </div>
   );
@@ -107,7 +109,7 @@ const INDICATOR_GROUPS: { prefix: string; label: string }[] = [
 function CountryPanelBody({ summary }: { summary: Record<string, unknown> }) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">ISO {String(summary.iso_code)}</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">ISO {String(summary.iso_code)}</p>
       {INDICATOR_GROUPS.map(({ prefix, label }) => {
         const group = Object.fromEntries(
           Object.entries(summary)
@@ -117,7 +119,7 @@ function CountryPanelBody({ summary }: { summary: Record<string, unknown> }) {
         if (Object.keys(group).length === 0) return null;
         return (
           <div key={prefix}>
-            <h3 className="mb-1 text-sm font-semibold text-slate-700">{label}</h3>
+            <h3 className="mb-1 text-sm font-semibold text-foreground">{label}</h3>
             <AttributeTable record={group} />
           </div>
         );

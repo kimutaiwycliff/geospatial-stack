@@ -6,7 +6,9 @@ import { MapEditor } from "./components/admin/MapEditor";
 import { Landing } from "./components/Landing";
 import { MapBySlugPage } from "./components/MapBySlugPage";
 import { MapPage } from "./components/MapPage";
+import { Toaster } from "./components/ui/sonner";
 import { AdminAuthProvider, RequireAdmin } from "./lib/adminAuth";
+import { ThemeProvider } from "./lib/theme";
 
 // Two routes now that there's a second thing worth navigating to (brief
 // §6.2's landing page + map, vs. Phase 0's single-page "just the map").
@@ -31,39 +33,42 @@ import { AdminAuthProvider, RequireAdmin } from "./lib/adminAuth";
 // its own top-level path instead of a query param on `/map`.
 export default function App() {
   return (
-    <AdminAuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/map" element={<MapPage />} />
-          <Route path="/m/:slug" element={<MapBySlugPage />} />
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route
-            path="/admin"
-            element={
-              <RequireAdmin>
-                <AdminDashboard />
-              </RequireAdmin>
-            }
-          />
-          <Route
-            path="/admin/maps"
-            element={
-              <RequireAdmin>
-                <AdminMapsPage />
-              </RequireAdmin>
-            }
-          />
-          <Route
-            path="/admin/maps/:slug"
-            element={
-              <RequireAdmin>
-                <MapEditor />
-              </RequireAdmin>
-            }
-          />
-        </Routes>
-      </BrowserRouter>
-    </AdminAuthProvider>
+    <ThemeProvider>
+      <Toaster />
+      <AdminAuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/map" element={<MapPage />} />
+            <Route path="/m/:slug" element={<MapBySlugPage />} />
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route
+              path="/admin"
+              element={
+                <RequireAdmin>
+                  <AdminDashboard />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="/admin/maps"
+              element={
+                <RequireAdmin>
+                  <AdminMapsPage />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="/admin/maps/:slug"
+              element={
+                <RequireAdmin>
+                  <MapEditor />
+                </RequireAdmin>
+              }
+            />
+          </Routes>
+        </BrowserRouter>
+      </AdminAuthProvider>
+    </ThemeProvider>
   );
 }

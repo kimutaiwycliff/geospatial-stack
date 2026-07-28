@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { XIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { fetchCountries, fetchDatasets, isMappable, type CountrySummary, type Dataset } from "../lib/api";
 import { buildMapUrlParams, parseMapUrlState } from "../lib/urlState";
 import { WORLD_VIEW } from "../lib/regionCentroids";
@@ -8,6 +10,7 @@ import { MapView, type MapViewHandle } from "./MapView";
 import { LayerPanel } from "./LayerPanel";
 import { CountrySearch } from "./CountrySearch";
 import { SidePanel } from "./SidePanel";
+import { ThemeToggle } from "./ThemeToggle";
 
 /**
  * Owns every piece of state the map, filters, and side panel share, and is
@@ -120,21 +123,27 @@ export function MapPage() {
       {/* Filters/layers sidebar -- an overlay drawer under md, a fixed
           column at md+ (brief §6.2 "responsive desktop/mobile"). */}
       <div
-        className={`z-30 w-full shrink-0 overflow-y-auto border-b border-slate-200 bg-white md:block md:h-full md:w-72 md:border-b-0 md:border-r ${
+        className={`z-30 w-full shrink-0 overflow-y-auto border-b border-border bg-background md:block md:h-full md:w-72 md:border-b-0 md:border-r ${
           sidebarOpen ? "fixed inset-0" : "hidden"
         } md:relative md:inset-auto`}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 p-3 md:hidden">
-          <span className="text-sm font-semibold text-slate-700">Filters</span>
-          <button type="button" onClick={() => setSidebarOpen(false)} className="text-2xl leading-none text-slate-400">
-            &times;
-          </button>
+        <div className="flex items-center justify-between border-b border-border p-3 md:hidden">
+          <span className="text-sm font-semibold text-foreground">Filters</span>
+          <Button variant="ghost" size="icon-sm" onClick={() => setSidebarOpen(false)} aria-label="Close filters">
+            <XIcon className="size-4" />
+          </Button>
         </div>
         <div className="flex flex-col gap-5 p-4">
-          <Link to="/" className="text-xs text-blue-600 hover:underline">
-            &larr; About this platform
-          </Link>
-          {loadError && <p className="text-sm text-red-600">{loadError}</p>}
+          <div className="flex items-center justify-between">
+            <Link to="/" className="text-xs text-primary hover:underline">
+              &larr; About this platform
+            </Link>
+            {/* Same top-right-of-nav spot as Landing's toggle, just folded
+                into this row since the sidebar (not a page-wide header) is
+                the nearest "chrome" this page has. */}
+            <ThemeToggle />
+          </div>
+          {loadError && <p className="text-sm text-destructive">{loadError}</p>}
           <CountrySearch countries={countries} selectedIso={selectedIso} onSelect={handleCountrySelect} />
           <LayerPanel datasets={datasets} visibleSlugs={visibleSlugs ?? []} onToggle={toggleLayer} />
         </div>
@@ -152,21 +161,13 @@ export function MapPage() {
         />
 
         <div className="absolute left-3 top-3 z-10 flex gap-2 md:hidden">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="rounded-md bg-white/95 px-3 py-1.5 text-sm font-medium shadow"
-          >
+          <Button variant="secondary" size="sm" onClick={() => setSidebarOpen(true)} className="shadow">
             Filters
-          </button>
+          </Button>
           {selection && !panelOpenMobile && (
-            <button
-              type="button"
-              onClick={() => setPanelOpenMobile(true)}
-              className="rounded-md bg-white/95 px-3 py-1.5 text-sm font-medium shadow"
-            >
+            <Button variant="secondary" size="sm" onClick={() => setPanelOpenMobile(true)} className="shadow">
               Details
-            </button>
+            </Button>
           )}
         </div>
       </div>

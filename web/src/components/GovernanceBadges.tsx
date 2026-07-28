@@ -1,24 +1,27 @@
+import { Badge } from "@/components/ui/badge";
 import type { Dataset } from "../lib/api";
 
 /**
- * Sensitivity color coding (brief §13: "Sensitivity classification per
- * dataset (public / restricted / withheld), enforced in the registry").
- * Every published dataset today is "public" (see api curl output at build
- * time), but restricted/withheld are real registry values the UI has to be
- * able to render correctly the day a curator marks one that way -- this
- * isn't speculative, it's the whole point of brief §13 being "non-optional".
+ * Sensitivity -> shadcn Badge variant (brief §13: "Sensitivity
+ * classification per dataset (public / restricted / withheld), enforced in
+ * the registry"). Every published dataset today is "public" (see api curl
+ * output at build time), but restricted/withheld are real registry values
+ * the UI has to be able to render correctly the day a curator marks one
+ * that way -- this isn't speculative, it's the whole point of brief §13
+ * being "non-optional". This exact mapping (public/restricted/withheld ->
+ * secondary/outline/destructive) is the ONE convention used everywhere
+ * sensitivity is shown (also GovernanceForm's select options) -- don't
+ * invent a second one elsewhere.
  */
-const SENSITIVITY_STYLES: Record<string, string> = {
-  public: "bg-green-100 text-green-800 border-green-300",
-  restricted: "bg-amber-100 text-amber-800 border-amber-300",
-  withheld: "bg-red-100 text-red-800 border-red-300",
+const SENSITIVITY_BADGE_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = {
+  public: "secondary",
+  restricted: "outline",
+  withheld: "destructive",
 };
 
 function SensitivityBadge({ sensitivity }: { sensitivity: string }) {
-  const style = SENSITIVITY_STYLES[sensitivity] ?? "bg-slate-100 text-slate-700 border-slate-300";
-  return (
-    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium capitalize ${style}`}>{sensitivity}</span>
-  );
+  const variant = SENSITIVITY_BADGE_VARIANT[sensitivity] ?? "outline";
+  return <Badge variant={variant} className="capitalize">{sensitivity}</Badge>;
 }
 
 /**
@@ -32,12 +35,12 @@ export function GovernanceBadges({ dataset, compact = false }: { dataset: Datase
   return (
     <div className={compact ? "flex flex-wrap items-center gap-1.5 text-xs" : "flex flex-col gap-1.5 text-sm"}>
       <SensitivityBadge sensitivity={dataset.sensitivity} />
-      <span className={compact ? "text-slate-500" : "text-slate-600"}>
-        <span className="font-medium">License:</span> {dataset.license}
+      <span className={compact ? "text-muted-foreground" : "text-muted-foreground"}>
+        <span className="font-medium text-foreground">License:</span> {dataset.license}
       </span>
       {!compact && (
-        <span className="text-slate-600">
-          <span className="font-medium">Attribution:</span> {dataset.attribution}
+        <span className="text-muted-foreground">
+          <span className="font-medium text-foreground">Attribution:</span> {dataset.attribution}
         </span>
       )}
     </div>

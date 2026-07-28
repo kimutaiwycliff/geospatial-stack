@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Map as MapLibreMap, Popup, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { buttonVariants } from "@/components/ui/button";
 import { fetchDatasets, isMappable, type Dataset } from "../lib/api";
 import { fetchMap, type PublicMapConfig } from "../lib/adminApi";
 import { buildBaseStyle } from "../lib/basemapStyle";
@@ -15,6 +17,7 @@ import {
   sourceId,
 } from "../lib/mapSources";
 import { WORLD_VIEW } from "../lib/regionCentroids";
+import { ThemeToggle } from "./ThemeToggle";
 
 /**
  * Public, unauthenticated render of ONE published Map (brief §16: "the map
@@ -99,7 +102,7 @@ export function MapBySlugPage() {
         const label = (feature.properties?.name as string | undefined) ?? "Feature";
         new Popup({ closeButton: true })
           .setLngLat(e.lngLat)
-          .setHTML(`<div class="text-sm"><strong>${label}</strong><br/><span class="text-slate-500">${datasetName}</span></div>`)
+          .setHTML(`<div class="text-sm"><strong>${label}</strong><br/><span class="text-muted-foreground">${datasetName}</span></div>`)
           .addTo(map);
       });
 
@@ -117,9 +120,9 @@ export function MapBySlugPage() {
 
   if (error) {
     return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center gap-3 bg-slate-50 text-center">
-        <p className="text-sm text-red-600">{error}</p>
-        <Link to="/" className="text-sm text-blue-600 hover:underline">
+      <div className="flex h-screen w-screen flex-col items-center justify-center gap-3 bg-background text-center">
+        <p className="text-sm text-destructive">{error}</p>
+        <Link to="/" className={buttonVariants({ variant: "link" })}>
           &larr; Back home
         </Link>
       </div>
@@ -128,12 +131,27 @@ export function MapBySlugPage() {
 
   return (
     <div className="relative h-screen w-screen">
+      {/* Info card in the corner -- a great fit for shadcn `Card` (brief):
+          it's a genuinely floating, self-contained piece of chrome over the
+          map, not a full-height pane, so Card's rounded/ring/padding model
+          reads naturally here (unlike SidePanel's edge-to-edge drawer). */}
       {config && (
-        <div className="absolute left-3 top-3 z-10 max-w-sm rounded-md bg-white/95 px-3 py-2 shadow">
-          <h1 className="text-sm font-semibold text-slate-900">{config.name}</h1>
-          {config.description && <p className="text-xs text-slate-500">{config.description}</p>}
-        </div>
+        // `w-72` (not just `max-w-sm`) is load-bearing: Card is `absolute`
+        // with no explicit width, so it shrink-to-fits its content -- and
+        // CardHeader's grid layout collapses to a near-zero intrinsic width
+        // in that mode, wrapping the title one character per line. A fixed
+        // base width (still capped by max-w-sm on very narrow viewports)
+        // keeps the grid from collapsing.
+        <Card className="absolute left-3 top-3 z-10 w-72 max-w-[calc(100vw-1.5rem)] bg-card/95 py-3 shadow">
+          <CardHeader className="gap-1 px-3">
+            <CardTitle className="text-sm">{config.name}</CardTitle>
+            {config.description && <CardDescription className="text-xs">{config.description}</CardDescription>}
+          </CardHeader>
+        </Card>
       )}
+      <div className="absolute right-3 top-3 z-10">
+        <ThemeToggle />
+      </div>
       <div ref={containerRef} className="h-full w-full" />
     </div>
   );

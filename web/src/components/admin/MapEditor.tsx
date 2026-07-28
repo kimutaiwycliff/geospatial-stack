@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   fetchAdminDatasets,
   fetchAdminMap,
@@ -12,6 +18,15 @@ import {
   type MapUpdatePatch,
 } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
+
+/** Success-state Alert styling -- same convention as UploadStatusPanel's
+ * SUCCESS_ALERT_CLASS (Alert has no built-in "success" variant). Both the
+ * Alert AND its AlertDescription need this text color explicitly --
+ * AlertDescription hardcodes its own `text-muted-foreground` (ui/alert.tsx)
+ * which wins over any color set only on the parent, since the two classes
+ * land on different DOM nodes. */
+const SUCCESS_ALERT_CLASS = "border-green-600/30 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-950/30 dark:text-green-300";
+const SUCCESS_TEXT_CLASS = "text-green-800 dark:text-green-300";
 
 /** Just the fields this editor actually lets a curator change -- mirrors
  * GovernanceForm's `FieldValues`/`fieldsOf` split so "what did we load"
@@ -194,8 +209,10 @@ export function MapEditor() {
   if (loadError) {
     return (
       <div className="p-6">
-        <p className="text-sm text-red-600">{loadError}</p>
-        <Link to="/admin/maps" className="text-xs text-blue-600 hover:underline">
+        <Alert variant="destructive">
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+        <Link to="/admin/maps" className="text-xs text-primary hover:underline">
           &larr; Maps
         </Link>
       </div>
@@ -203,7 +220,7 @@ export function MapEditor() {
   }
 
   if (!map || !values) {
-    return <div className="p-6 text-sm text-slate-500">Loading&hellip;</div>;
+    return <div className="p-6 text-sm text-muted-foreground">Loading&hellip;</div>;
   }
 
   const visibleDatasets = showAllDatasets ? datasets : datasets.filter((d) => d.tier_status === "published");
@@ -211,131 +228,140 @@ export function MapEditor() {
 
   return (
     <div className="flex h-screen w-screen flex-col">
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white p-4">
+      <div className="flex items-center justify-between border-b border-border bg-background p-4">
         <div className="flex items-center gap-4">
-          <Link to="/admin/maps" className="text-xs text-blue-600 hover:underline">
+          <Link to="/admin/maps" className="text-xs text-primary hover:underline">
             &larr; Maps
           </Link>
           <div>
-            <h1 className="text-sm font-semibold text-slate-900">{map.name}</h1>
-            <p className="text-xs text-slate-400">
+            <h1 className="text-sm font-semibold text-foreground">{map.name}</h1>
+            <p className="text-xs text-muted-foreground">
               {map.slug} &middot; {map.status}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           {map.status === "published" && (
-            <Link to={`/m/${map.slug}`} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">
+            <Link to={`/m/${map.slug}`} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
               View public page &rarr;
             </Link>
           )}
-          <button
-            type="button"
-            onClick={handlePublish}
-            disabled={publishing || map.status === "published"}
-            className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <Button type="button" onClick={handlePublish} disabled={publishing || map.status === "published"}>
             {map.status === "published" ? "Published" : publishing ? "Publishing…" : "Publish"}
-          </button>
+          </Button>
         </div>
       </div>
 
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 overflow-y-auto p-6">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700">Name</span>
-          <input
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="map-name">Name</Label>
+          <Input
+            id="map-name"
             type="text"
             value={values.name}
             onChange={(e) => setValues((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
           />
-        </label>
+        </div>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700">Description</span>
-          <textarea
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="map-description">Description</Label>
+          <Textarea
+            id="map-description"
             value={values.description}
             onChange={(e) => setValues((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
             rows={2}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
           />
-        </label>
+        </div>
 
         <div className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-slate-700">Basemap</span>
+          <span className="font-medium text-foreground">Basemap</span>
           {/* Read-only: "light" is the only style @protomaps/basemaps is
               wired up with today (see basemapStyle.ts) -- a picker with one
               option is worse UX than just stating the fact. */}
-          <span className="text-slate-500">{map.basemap} (only basemap available)</span>
+          <span className="text-muted-foreground">{map.basemap} (only basemap available)</span>
         </div>
 
         <div className="flex flex-col gap-2 text-sm">
-          <label className="flex items-center gap-2 font-medium text-slate-700">
-            <input type="checkbox" checked={extentEnabled} onChange={(e) => setExtentEnabled(e.target.checked)} />
-            Set a default view
-          </label>
+          <div className="flex items-center gap-2">
+            <Switch id="extent-enabled" checked={extentEnabled} onCheckedChange={setExtentEnabled} />
+            <Label htmlFor="extent-enabled" className="font-medium text-foreground">
+              Set a default view
+            </Label>
+          </div>
           {extentEnabled && (
-            <div className="flex flex-wrap items-center gap-3 pl-6">
-              <label className="flex flex-col gap-1 text-xs text-slate-500">
-                Center lng
-                <input
+            <div className="flex flex-wrap items-center gap-3 pl-8">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="center-lng" className="text-xs text-muted-foreground">
+                  Center lng
+                </Label>
+                <Input
+                  id="center-lng"
                   type="number"
                   step="any"
                   value={centerLng}
                   onChange={(e) => setCenterLng(e.target.value)}
-                  className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  className="w-28"
                 />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-slate-500">
-                Center lat
-                <input
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="center-lat" className="text-xs text-muted-foreground">
+                  Center lat
+                </Label>
+                <Input
+                  id="center-lat"
                   type="number"
                   step="any"
                   value={centerLat}
                   onChange={(e) => setCenterLat(e.target.value)}
-                  className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  className="w-28"
                 />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-slate-500">
-                Zoom
-                <input
-                  type="number"
-                  step="any"
-                  value={zoom}
-                  onChange={(e) => setZoom(e.target.value)}
-                  className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                />
-              </label>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="zoom" className="text-xs text-muted-foreground">
+                  Zoom
+                </Label>
+                <Input id="zoom" type="number" step="any" value={zoom} onChange={(e) => setZoom(e.target.value)} className="w-20" />
+              </div>
             </div>
           )}
         </div>
 
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-700">Layers</span>
-            <label className="flex items-center gap-2 text-xs text-slate-500">
-              <input type="checkbox" checked={showAllDatasets} onChange={(e) => setShowAllDatasets(e.target.checked)} />
-              Show all datasets (including unpublished)
-            </label>
+            <span className="text-sm font-medium text-foreground">Layers</span>
+            <div className="flex items-center gap-2">
+              <Switch id="show-all-datasets" checked={showAllDatasets} onCheckedChange={setShowAllDatasets} />
+              <Label htmlFor="show-all-datasets" className="text-xs text-muted-foreground">
+                Show all datasets (including unpublished)
+              </Label>
+            </div>
           </div>
-          <ul className="flex flex-col divide-y divide-slate-100 rounded-md border border-slate-200">
-            {visibleDatasets.length === 0 && <li className="p-3 text-sm text-slate-500">No datasets to reference.</li>}
+          <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
+            {visibleDatasets.length === 0 && <li className="p-3 text-sm text-muted-foreground">No datasets to reference.</li>}
             {visibleDatasets.map((dataset) => {
               const layer = layerFor(dataset.slug);
               return (
                 <li key={dataset.slug} className="flex items-center justify-between gap-3 p-3 text-sm">
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={layer != null} onChange={() => toggleLayerIncluded(dataset.slug)} />
-                    <span className="text-slate-800">{dataset.name}</span>
-                    <span className="text-xs text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={layer != null}
+                      onCheckedChange={() => toggleLayerIncluded(dataset.slug)}
+                      aria-label={`Include ${dataset.name} in this map`}
+                    />
+                    <span className="text-foreground">{dataset.name}</span>
+                    <span className="text-xs text-muted-foreground">
                       {dataset.slug} &middot; {dataset.tier_status}
                     </span>
-                  </label>
+                  </div>
                   {layer && (
-                    <label className="flex items-center gap-2 text-xs text-slate-500">
-                      <input type="checkbox" checked={layer.visible} onChange={() => toggleLayerVisible(dataset.slug)} />
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Switch
+                        checked={layer.visible}
+                        onCheckedChange={() => toggleLayerVisible(dataset.slug)}
+                        aria-label={`Visible by default: ${dataset.name}`}
+                      />
                       Visible by default
-                    </label>
+                    </div>
                   )}
                 </li>
               );
@@ -344,16 +370,18 @@ export function MapEditor() {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <Button type="button" onClick={handleSave} disabled={saving}>
             {saving ? "Saving…" : "Save"}
-          </button>
+          </Button>
           {message && (
-            <p className={`text-sm ${message.kind === "success" ? "text-green-700" : "text-red-600"}`}>{message.text}</p>
+            <Alert
+              variant={message.kind === "error" ? "destructive" : "default"}
+              className={message.kind === "success" ? `w-auto px-3 py-1.5 ${SUCCESS_ALERT_CLASS}` : "w-auto px-3 py-1.5"}
+            >
+              <AlertDescription className={message.kind === "success" ? SUCCESS_TEXT_CLASS : undefined}>
+                {message.text}
+              </AlertDescription>
+            </Alert>
           )}
         </div>
       </div>

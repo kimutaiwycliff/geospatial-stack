@@ -2,7 +2,7 @@ import type { IControl, Map as MapLibreMap } from "maplibre-gl";
 import { DEFAULT_LEGEND_CONFIG, type MapLegendConfig } from "../adminApi";
 import { datasetSlugFromLayerId, fillLayerId, labelLayerId, outlineLayerId } from "../mapSources";
 
-type SwatchShape = "circle" | "line" | "square";
+export type SwatchShape = "circle" | "line" | "square";
 
 /** Point/MultiPoint -> a dot; LineString/MultiLineString -> a stroke;
  * everything else (Polygon/MultiPolygon, or an unknown/generic
@@ -10,7 +10,7 @@ type SwatchShape = "circle" | "line" | "square";
  * swatch shapes (LegendSwatch.tsx), researched directly rather than
  * guessed. Case-insensitive: registry.datasets.geometry_type is whatever
  * DuckDB's `ST_GeometryType` returned at ingest time. */
-function shapeForGeometryType(geometryType: string | undefined): SwatchShape {
+export function shapeForGeometryType(geometryType: string | undefined): SwatchShape {
   const t = (geometryType ?? "").toLowerCase();
   if (t.includes("point")) return "circle";
   if (t.includes("line")) return "line";

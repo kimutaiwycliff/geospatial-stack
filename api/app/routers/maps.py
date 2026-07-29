@@ -119,7 +119,7 @@ class MapLayer(BaseModel):
 _KNOWN_CONTROLS = {
     "navigation", "fullscreen", "geolocate", "globe", "scale", "attribution", "logo",
     "search", "measure", "minimap", "gridlines",
-    "compass", "spinning-globe", "atmosphere", "bookmark", "legend", "basemap-switcher",
+    "compass", "spinning-globe", "atmosphere", "bookmark", "legend", "layers", "basemap-switcher",
 }
 
 

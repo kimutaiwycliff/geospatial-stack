@@ -200,6 +200,9 @@ export function MapBySlugPage() {
       datasetGeometryTypes: Object.fromEntries(
         datasets.filter((d) => d.geometry_type).map((d) => [d.slug, d.geometry_type as string]),
       ),
+      // Layers control's labels + zoom-to-extent (brief follow-up) -- same
+      // already-fetched `datasets`, no new API call needed here either.
+      datasets,
     });
 
     // Published styles (brief §6.3) -- see MapView.tsx's identical fetch

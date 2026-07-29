@@ -783,6 +783,160 @@ export function MapEditor() {
                 className="w-20"
               />
             </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="gridlines-type" className="text-xs text-muted-foreground">
+                Grid type
+              </Label>
+              <Select
+                value={values.gridlines_json.grid_type}
+                onValueChange={(v) => updateGridlines({ grid_type: v as "geographic" | "utm" })}
+              >
+                <SelectTrigger id="gridlines-type" className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="geographic">Geographic (lat/long)</SelectItem>
+                  <SelectItem value="utm">UTM (easting/northing)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="gridlines-spacing-mode" className="text-xs text-muted-foreground">
+                Spacing
+              </Label>
+              <Select
+                value={values.gridlines_json.spacing_mode}
+                onValueChange={(v) => updateGridlines({ spacing_mode: v as "auto" | "fixed" })}
+              >
+                <SelectTrigger id="gridlines-spacing-mode" className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (by zoom)</SelectItem>
+                  <SelectItem value="fixed">Fixed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {values.gridlines_json.spacing_mode === "fixed" &&
+              (values.gridlines_json.grid_type === "utm" ? (
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="gridlines-spacing-m" className="text-xs text-muted-foreground">
+                    Interval (m)
+                  </Label>
+                  <Input
+                    id="gridlines-spacing-m"
+                    type="number"
+                    min={100}
+                    step={100}
+                    value={values.gridlines_json.spacing_meters}
+                    onChange={(e) => updateGridlines({ spacing_meters: Number(e.target.value) })}
+                    className="w-24"
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="gridlines-spacing-deg" className="text-xs text-muted-foreground">
+                    Interval (°)
+                  </Label>
+                  <Input
+                    id="gridlines-spacing-deg"
+                    type="number"
+                    min={0.01}
+                    step={0.5}
+                    value={values.gridlines_json.spacing_degrees}
+                    onChange={(e) => updateGridlines({ spacing_degrees: Number(e.target.value) })}
+                    className="w-24"
+                  />
+                </div>
+              ))}
+            <div className="flex items-center gap-2">
+              <Switch
+                id="gridlines-dashed"
+                checked={values.gridlines_json.dashed}
+                onCheckedChange={(dashed) => updateGridlines({ dashed })}
+              />
+              <Label htmlFor="gridlines-dashed" className="text-xs text-muted-foreground">
+                Dashed
+              </Label>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="gridlines-show-labels"
+                checked={values.gridlines_json.show_labels}
+                onCheckedChange={(show_labels) => updateGridlines({ show_labels })}
+              />
+              <Label htmlFor="gridlines-show-labels" className="text-xs text-muted-foreground">
+                Coordinate labels
+              </Label>
+            </div>
+            {values.gridlines_json.show_labels && (
+              <>
+                {values.gridlines_json.grid_type === "geographic" && (
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="gridlines-label-format" className="text-xs text-muted-foreground">
+                      Format
+                    </Label>
+                    <Select
+                      value={values.gridlines_json.label_format}
+                      onValueChange={(v) => updateGridlines({ label_format: v as "dd" | "dms" })}
+                    >
+                      <SelectTrigger id="gridlines-label-format" className="w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="dd">Decimal degrees</SelectItem>
+                        <SelectItem value="dms">Degrees/min/sec</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="gridlines-label-edges" className="text-xs text-muted-foreground">
+                    Label edges
+                  </Label>
+                  <Select
+                    value={values.gridlines_json.label_edges}
+                    onValueChange={(v) => updateGridlines({ label_edges: v as "left-bottom" | "all" })}
+                  >
+                    <SelectTrigger id="gridlines-label-edges" className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="left-bottom">Left + bottom</SelectItem>
+                      <SelectItem value="all">All edges</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="gridlines-label-color" className="text-xs text-muted-foreground">
+                    Label color
+                  </Label>
+                  <input
+                    id="gridlines-label-color"
+                    type="color"
+                    value={values.gridlines_json.label_color}
+                    onChange={(e) => updateGridlines({ label_color: e.target.value })}
+                    className="h-8 w-14 cursor-pointer rounded-md border border-input"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="gridlines-label-size" className="text-xs text-muted-foreground">
+                    Label size
+                  </Label>
+                  <Input
+                    id="gridlines-label-size"
+                    type="number"
+                    min={8}
+                    max={20}
+                    value={values.gridlines_json.label_size}
+                    onChange={(e) => updateGridlines({ label_size: Number(e.target.value) })}
+                    className="w-20"
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
 

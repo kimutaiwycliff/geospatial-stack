@@ -186,6 +186,10 @@ export function applyMapControls(
     initialBasemapFlavor?: BasemapFlavor;
     gridlinesConfig?: GridlinesConfig;
     legendConfig?: MapLegendConfig;
+    /** slug -> geometry_type, for the legend's shape-accurate swatches
+     * (brief follow-up, researched against GeoLibre's LegendSwatch.tsx) --
+     * omitted entirely just falls back to square swatches. */
+    datasetGeometryTypes?: Record<string, string>;
   },
 ): void {
   if (!config) return;
@@ -201,7 +205,7 @@ export function applyMapControls(
       // needs the correct flavor for its very FIRST frame.
       else if (id === "minimap") control = createMinimapControl(opts?.initialBasemapFlavor);
       else if (id === "gridlines") control = createGraticuleControl(opts?.gridlinesConfig);
-      else if (id === "legend") control = createLegendControl(opts?.legendConfig);
+      else if (id === "legend") control = createLegendControl(opts?.legendConfig, opts?.datasetGeometryTypes);
       else control = CONTROL_FACTORIES[id]();
       map.addControl(control, entry.position);
     }

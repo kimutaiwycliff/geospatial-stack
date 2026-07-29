@@ -147,16 +147,29 @@ class MapLegendConfig(BaseModel):
 
 
 class GridlinesConfig(BaseModel):
-    """Styling for the gridlines/graticule control (brief follow-up: "I
-    should also be able to customize ... the gridlines") -- the zoom-
-    adaptive interval logic itself (coarser grid when zoomed out) stays
-    fixed in graticuleControl.ts; only its paint properties are
-    admin-configurable, same "single value, not a full style-spec editor"
-    scope as StylingPanel's fill/line controls."""
+    """Gridlines/graticule config -- expanded to close the gap against
+    GeoLibre's own graticule plugin (researched directly against
+    packages/plugins/src/plugins/maplibre-graticule.ts, brief follow-up:
+    features GeoLibre's gridlines have that this app didn't). `grid_type`
+    "utm" draws a metric easting/northing grid (proj4, client-side) instead
+    of the geographic lat/long one; everything else applies to both."""
 
+    grid_type: Literal["geographic", "utm"] = "geographic"
+    spacing_mode: Literal["auto", "fixed"] = "auto"
+    spacing_degrees: float = 10
+    spacing_meters: float = 100000
     color: str = "#888888"
     width: float = 0.5
     opacity: float = 0.5
+    # True matches the OLD hardcoded behavior exactly (every gridline was
+    # always dashed before this became a real toggle) -- preserves what an
+    # existing Map was already showing rather than silently changing it.
+    dashed: bool = True
+    show_labels: bool = True
+    label_format: Literal["dd", "dms"] = "dd"
+    label_edges: Literal["left-bottom", "all"] = "left-bottom"
+    label_color: str = "#888888"
+    label_size: float = 10
 
 
 class MapCreate(BaseModel):

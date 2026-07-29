@@ -194,6 +194,11 @@ export function MapBySlugPage() {
       initialBasemapFlavor: asBasemapFlavor(config.basemap),
       gridlinesConfig: config.gridlines_json ?? undefined,
       legendConfig: config.legend_json ?? undefined,
+      // Shape-accurate legend swatches (brief follow-up) -- built from
+      // this page's own `datasets` fetch, not a new API call.
+      datasetGeometryTypes: Object.fromEntries(
+        datasets.filter((d) => d.geometry_type).map((d) => [d.slug, d.geometry_type as string]),
+      ),
     });
 
     // Published styles (brief §6.3) -- see MapView.tsx's identical fetch

@@ -319,12 +319,49 @@ export const DEFAULT_LEGEND_CONFIG: MapLegendConfig = { title: "Legend", items: 
 /** Gridlines/graticule styling (brief follow-up: "customize ... the
  * gridlines") -- mirrors maps.py's `GridlinesConfig` and
  * graticuleControl.ts's own previous hardcoded paint values. */
+/**
+ * Gridlines/graticule config -- expanded to close the gap against
+ * GeoLibre's own graticule plugin (researched directly against
+ * packages/plugins/src/plugins/maplibre-graticule.ts, brief follow-up:
+ * "some features that ... gridline map controls have in geolibre but we
+ * don't have yet"). `grid_type: "utm"` draws a metric easting/northing
+ * grid (via proj4) instead of the geographic lat/long one; everything
+ * else applies to both.
+ */
 export interface GridlinesConfig {
+  grid_type: "geographic" | "utm";
+  spacing_mode: "auto" | "fixed";
+  spacing_degrees: number;
+  spacing_meters: number;
   color: string;
   width: number;
   opacity: number;
+  dashed: boolean;
+  show_labels: boolean;
+  label_format: "dd" | "dms";
+  label_edges: "left-bottom" | "all";
+  label_color: string;
+  label_size: number;
 }
-export const DEFAULT_GRIDLINES_CONFIG: GridlinesConfig = { color: "#888888", width: 0.5, opacity: 0.5 };
+export const DEFAULT_GRIDLINES_CONFIG: GridlinesConfig = {
+  grid_type: "geographic",
+  spacing_mode: "auto",
+  spacing_degrees: 10,
+  spacing_meters: 100000,
+  color: "#888888",
+  width: 0.5,
+  opacity: 0.5,
+  // Matches the OLD hardcoded behavior exactly (every gridline was always
+  // dashed before this became a real toggle) -- an existing Map's saved
+  // gridlines_json predates this field entirely, so the fallback here has
+  // to preserve what it was already showing, not silently change it.
+  dashed: true,
+  show_labels: true,
+  label_format: "dd",
+  label_edges: "left-bottom",
+  label_color: "#888888",
+  label_size: 10,
+};
 
 /** Matches urlState.ts's `MapUrlState.view` shape exactly (brief note) --
  * reused as-is rather than inventing a parallel view-state type. */

@@ -38,6 +38,23 @@ class MapLayer(BaseModel):
     style_ref: Literal["published"] = "published"
 
 
+# The 7 controls that are genuinely native to MapLibre GL JS (NavigationControl/
+# FullscreenControl/GeolocateControl/GlobeControl/ScaleControl/
+# AttributionControl/LogoControl) -- researched against GeoLibre (brief §14),
+# whose own "Map controls" menu lists ~24 items, but everything beyond these
+# 7 is a separate plugin package or an external service (geocoding, routing,
+# weather tiles, deck.gl overlays), not a MapLibre built-in, and out of
+# scope here. Frozen as a real allowlist (not just a TypedDict) so a typo'd
+# or made-up control id in a PUT body 422s immediately instead of silently
+# being stored and then ignored by the frontend's renderer.
+_KNOWN_CONTROLS = {"navigation", "fullscreen", "geolocate", "globe", "scale", "attribution", "logo"}
+
+
+class MapControlConfig(BaseModel):
+    enabled: bool = False
+    position: Literal["top-left", "top-right", "bottom-left", "bottom-right"] = "top-right"
+
+
 class MapCreate(BaseModel):
     name: str
     description: str | None = None
@@ -51,6 +68,7 @@ class MapUpdate(BaseModel):
     default_extent: dict | None = None
     filters_json: dict | None = None
     legend_json: dict | None = None
+    controls_json: dict[str, MapControlConfig] | None = None
 
 
 def _row_to_map(row: dict) -> dict:
@@ -87,7 +105,8 @@ def get_published_map(slug: str):
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT slug, name, description, layers_json, basemap, default_extent, filters_json, legend_json
+                SELECT slug, name, description, layers_json, basemap, default_extent, filters_json, legend_json,
+                       controls_json
                 FROM registry.maps WHERE slug = %s AND status = 'published'
                 """,
                 (slug,),
@@ -177,12 +196,26 @@ def update_map(slug: str, update: MapUpdate = Body(...), admin: dict = Depends(r
         raise HTTPException(status_code=400, detail="no fields to update")
 
     layer_slugs = [layer["dataset_slug"] for layer in fields.get("layers_json", [])]
+    if "controls_json" in fields:
+        unknown_controls = set(fields["controls_json"]) - _KNOWN_CONTROLS
+        if unknown_controls:
+            raise HTTPException(status_code=400, detail=f"unknown control id(s) in controls_json: {sorted(unknown_controls)}")
+
     # JSONB columns need an explicit json.dumps -- psycopg2 has no built-in
     # adapter for a bare Python list/dict targeting jsonb (see styles
     # router's identical pattern for the single-value case).
-    jsonb_fields = {"layers_json", "default_extent", "filters_json", "legend_json"}
+    jsonb_fields = {"layers_json", "default_extent", "filters_json", "legend_json", "controls_json"}
     params = {field: (json.dumps(value) if field in jsonb_fields else value) for field, value in fields.items()}
-    set_clause = ", ".join(f"{field} = %({field})s" for field in fields)
+    # controls_json is the one JSONB field that's a MERGE, not a whole-value
+    # replace, unlike layers_json/default_extent/etc: each control id is an
+    # independently addressable sub-config (brief: "toggling for each map
+    # easily"), so sending {"scale": {...}} must only touch "scale", not
+    # silently drop every other control the map already had configured.
+    # Postgres's `||` on jsonb does exactly that at the top level.
+    set_clause = ", ".join(
+        f"{field} = controls_json || %({field})s::jsonb" if field == "controls_json" else f"{field} = %({field})s"
+        for field in fields
+    )
 
     conn = get_connection()
     try:

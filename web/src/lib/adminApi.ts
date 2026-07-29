@@ -16,6 +16,7 @@ import {
   mapsUrl,
   publishedStylesUrl,
 } from "./config";
+import type { MapControlsConfig } from "./mapControls";
 
 /**
  * Full registry row as the ADMIN sees it (brief §6.3/§13) -- a superset of
@@ -209,6 +210,7 @@ export interface PublicMapConfig {
   default_extent: MapExtent | null;
   filters_json: Record<string, unknown> | null;
   legend_json: Record<string, unknown> | null;
+  controls_json: MapControlsConfig;
 }
 
 /** One row of `GET /admin/maps` -- the authoring UI's list view, every
@@ -233,6 +235,7 @@ export interface AdminMapDetail extends AdminMapSummary {
   default_extent: MapExtent | null;
   filters_json: Record<string, unknown> | null;
   legend_json: Record<string, unknown> | null;
+  controls_json: MapControlsConfig;
   created_by: string | null;
   version: number;
 }
@@ -255,6 +258,7 @@ export interface MapUpdatePatch {
   default_extent?: MapExtent | null;
   filters_json?: Record<string, unknown> | null;
   legend_json?: Record<string, unknown> | null;
+  controls_json?: MapControlsConfig;
 }
 
 /** One row of `GET /admin/audit-log`. `details` is intentionally left as a

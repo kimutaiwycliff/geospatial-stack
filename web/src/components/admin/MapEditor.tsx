@@ -4,6 +4,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -18,6 +19,13 @@ import {
   type MapUpdatePatch,
 } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
+import {
+  CONTROL_POSITIONS,
+  DEFAULT_MAP_CONTROLS,
+  MAP_CONTROL_IDS,
+  MAP_CONTROL_LABELS,
+  type MapControlsConfig,
+} from "../../lib/mapControls";
 
 /** Success-state Alert styling -- same convention as UploadStatusPanel's
  * SUCCESS_ALERT_CLASS (Alert has no built-in "success" variant). Both the
@@ -38,6 +46,7 @@ interface EditableFields {
   description: string;
   layers_json: MapLayer[];
   default_extent: { center: [number, number]; zoom: number } | null;
+  controls_json: MapControlsConfig;
 }
 
 function fieldsOf(map: AdminMapDetail): EditableFields {
@@ -46,6 +55,12 @@ function fieldsOf(map: AdminMapDetail): EditableFields {
     description: map.description ?? "",
     layers_json: map.layers_json,
     default_extent: map.default_extent,
+    // Falls back to the same default the migration's own column default
+    // gives a brand-new row -- belt-and-suspenders in case a map row ever
+    // has a genuinely empty controls_json (shouldn't happen post-migration,
+    // but a missing entry per-control below still needs SOME value to
+    // seed the Switch/Select from).
+    controls_json: { ...DEFAULT_MAP_CONTROLS, ...map.controls_json },
   };
 }
 
@@ -61,6 +76,7 @@ function buildPatch(loaded: EditableFields, current: EditableFields): MapUpdateP
   if (loaded.description !== current.description) patch.description = current.description;
   if (JSON.stringify(loaded.layers_json) !== JSON.stringify(current.layers_json)) patch.layers_json = current.layers_json;
   if (JSON.stringify(loaded.default_extent) !== JSON.stringify(current.default_extent)) patch.default_extent = current.default_extent;
+  if (JSON.stringify(loaded.controls_json) !== JSON.stringify(current.controls_json)) patch.controls_json = current.controls_json;
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
@@ -159,6 +175,14 @@ export function MapEditor() {
         ...prev,
         layers_json: prev.layers_json.map((l) => (l.dataset_slug === datasetSlug ? { ...l, visible: !l.visible } : l)),
       };
+    });
+  }
+
+  function updateControl(id: keyof MapControlsConfig, patch: Partial<MapControlsConfig[keyof MapControlsConfig]>) {
+    setValues((prev) => {
+      if (!prev) return prev;
+      const current = prev.controls_json[id] ?? DEFAULT_MAP_CONTROLS[id];
+      return { ...prev, controls_json: { ...prev.controls_json, [id]: { ...current, ...patch } } };
     });
   }
 
@@ -366,6 +390,48 @@ export function MapEditor() {
                       Visible by default
                     </div>
                   )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-foreground">Map controls</span>
+          <p className="text-xs text-muted-foreground">
+            The 7 controls native to MapLibre GL JS -- everything else in GeoLibre's own "Map controls" menu
+            (search, directions, weather, route animation, ...) depends on an external service or a separate plugin
+            package and isn't offered here.
+          </p>
+          <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
+            {MAP_CONTROL_IDS.map((id) => {
+              const entry = values.controls_json[id] ?? DEFAULT_MAP_CONTROLS[id];
+              return (
+                <li key={id} className="flex items-center justify-between gap-3 p-3 text-sm transition-colors duration-150 hover:bg-muted/50">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={entry.enabled}
+                      onCheckedChange={(enabled) => updateControl(id, { enabled })}
+                      aria-label={`Enable ${MAP_CONTROL_LABELS[id]}`}
+                    />
+                    <span className="text-foreground">{MAP_CONTROL_LABELS[id]}</span>
+                  </div>
+                  <Select
+                    value={entry.position}
+                    onValueChange={(position) => updateControl(id, { position: position as typeof entry.position })}
+                    disabled={!entry.enabled}
+                  >
+                    <SelectTrigger className="w-36" aria-label={`${MAP_CONTROL_LABELS[id]} position`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONTROL_POSITIONS.map((position) => (
+                        <SelectItem key={position} value={position}>
+                          {position}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </li>
               );
             })}

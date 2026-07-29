@@ -7,6 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { fetchDatasets, isMappable, type Dataset } from "../lib/api";
 import { fetchMap, type PublicMapConfig } from "../lib/adminApi";
 import { buildBaseStyle } from "../lib/basemapStyle";
+import { applyMapControls } from "../lib/mapControls";
 import {
   buildFillLayer,
   buildOutlineLayer,
@@ -74,8 +75,15 @@ export function MapBySlugPage() {
       style: buildBaseStyle(),
       center: view.center,
       zoom: view.zoom,
+      // MapLibre silently adds its OWN default AttributionControl unless
+      // told not to -- suppressed here so applyMapControls (below) is the
+      // ONLY thing that ever adds one, driven by this Map's saved
+      // controls_json, instead of ending up with two attribution controls
+      // whenever an admin has "attribution" enabled (the default).
+      attributionControl: false,
     });
     mapRef.current = map;
+    applyMapControls(map, config.controls_json);
 
     map.on("load", () => {
       entries.forEach(({ layer, dataset }, index) => {

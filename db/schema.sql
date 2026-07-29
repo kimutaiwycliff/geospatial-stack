@@ -855,7 +855,8 @@ CREATE TABLE registry.maps (
     created_by text,
     version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    controls_json jsonb DEFAULT '{"logo": {"enabled": false, "position": "bottom-left"}, "globe": {"enabled": false, "position": "top-right"}, "scale": {"enabled": false, "position": "bottom-left"}, "geolocate": {"enabled": false, "position": "top-right"}, "fullscreen": {"enabled": true, "position": "top-right"}, "navigation": {"enabled": true, "position": "top-right"}, "attribution": {"enabled": true, "position": "bottom-right"}}'::jsonb NOT NULL
 );
 
 
@@ -1200,4 +1201,5 @@ ALTER TABLE ONLY registry.layer_styles
 INSERT INTO public.schema_migrations (version) VALUES
     ('20260728000001'),
     ('20260728000002'),
-    ('20260728000003');
+    ('20260728000003'),
+    ('20260729000001');

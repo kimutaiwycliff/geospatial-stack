@@ -3,7 +3,9 @@ import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   approveUpload,
@@ -105,6 +107,11 @@ export function UploadStatusPanel({
   const [pollError, setPollError] = useState<string | null>(null);
   const [awaitingPublish, setAwaitingPublish] = useState(false);
   const [approving, setApproving] = useState(false);
+  // Defaults to PMTiles (this app's original/only option) -- Martin is now
+  // a real choice too (brief follow-up: "give the admin [the choice]
+  // whether it will be from the pmtiles or martin dynamic tiles"), served
+  // live from Postgres and auto-discovered by tiles/martin/config.yaml.
+  const [serveMode, setServeMode] = useState<"pmtiles" | "martin">("pmtiles");
   const [approveError, setApproveError] = useState<string | null>(null);
 
   // Re-seed on a genuinely different dataset selection, mirroring
@@ -171,9 +178,11 @@ export function UploadStatusPanel({
     setApproving(true);
     setApproveError(null);
     try {
-      await approveUpload(token, dataset.slug, "pmtiles");
+      await approveUpload(token, dataset.slug, serveMode);
       setAwaitingPublish(true);
-      toast.success("Publish requested -- building tiles now.");
+      toast.success(
+        serveMode === "pmtiles" ? "Publish requested -- building tiles now." : "Publish requested -- Martin will pick it up within ~30s.",
+      );
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         logout();
@@ -333,8 +342,22 @@ export function UploadStatusPanel({
 
       {canApprove && (
         <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="serve-mode" className="text-xs text-muted-foreground">
+              Serve via
+            </Label>
+            <Select value={serveMode} onValueChange={(value) => setServeMode(value as "pmtiles" | "martin")} disabled={approving || awaitingPublish}>
+              <SelectTrigger id="serve-mode" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pmtiles">PMTiles (static, built once)</SelectItem>
+                <SelectItem value="martin">Martin (dynamic, live from Postgres)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Button type="button" onClick={handleApprove} disabled={approving || awaitingPublish}>
-            {approving ? "Requesting…" : "Approve & publish (PMTiles)"}
+            {approving ? "Requesting…" : "Approve & publish"}
           </Button>
           {approveError && (
             <Alert variant="destructive" className="w-auto px-3 py-1.5">

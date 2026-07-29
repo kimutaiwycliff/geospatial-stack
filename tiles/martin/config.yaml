@@ -1,9 +1,27 @@
-# Martin config for the Phase-0 slice. Explicit `tables:` entry (rather than
-# relying on Martin's auto-discovery of every table in `published`) so the
-# tile source id is predictable (`kenya_admin1_provinces`) for the frontend
-# to hardcode, and so a table only becomes tile-servable by being listed
-# here -- an intentional step, matching the registry's own "nothing is
-# servable until explicitly promoted" rule (brief §4/§5).
+# Martin config -- auto-discovers every table in the `published` schema
+# (brief follow-up: "configured to autodiscover tables ... so I can be
+# ready for all sorts of data") instead of the old Phase-0 approach: one
+# explicit `tables:` entry that only ever knew about a single hardcoded
+# fixture table, meaning every NEW dataset published with serve_mode=martin
+# needed a manual config.yaml edit + container restart to actually become
+# tile-servable. Verified against Martin's own generated full-config
+# reference (github.com/maplibre/martin, docs/content/files/
+# generated_config.md) rather than guessed -- auto_publish's exact keys,
+# defaults, and the `reload_interval` runtime-rescan behavior below all
+# come straight from that doc.
+#
+# Scoped to `from_schemas: [published]` -- this is a real security
+# boundary, not just tidiness. Martin's own default behavior ("given a
+# connection string with no tables/auto_publish config, publish every
+# table in the database with a geometry column") would ALSO auto-publish
+# registry.datasets -- its `extent` column is itself a geometry column --
+# leaking every dataset's bounding box and metadata (including withheld/
+# restricted-sensitivity ones) through an unauthenticated tile endpoint.
+# `published.*` is this app's own existing trust boundary already: nothing
+# lands there before a curator explicitly approves/publishes it (see
+# worker/tasks.py's load_postgis_task) -- scoping auto-discovery to that
+# one schema just extends the SAME boundary to Martin instead of
+# duplicating it in a hand-maintained list.
 #
 # Martin DOES expand env vars inside config.yaml, but only for an *unquoted*
 # $VAR (or ${VAR}) scalar -- quoting it as '${DATABASE_URL}' makes Martin
@@ -18,22 +36,42 @@ postgres:
   default_srid: 4326
   pool_size: 20
 
-  tables:
-    kenya_admin1_provinces:
-      schema: published
-      table: kenya_admin1_provinces
-      srid: 4326
-      geometry_column: geom
-      id_column: id
-      geometry_type: GEOMETRY
+  # Re-scans `published` for new/changed/dropped tables on this interval --
+  # a curator approving a self-service upload with serve_mode=martin (brief
+  # follow-up: "give the admin [the choice] whether it will be from the
+  # pmtiles or martin dynamic tiles") becomes tile-servable within this
+  # window, with NO restart and NO config edit, which is the entire point
+  # of switching to auto-discovery. 30s keeps that window short enough that
+  # "I just approved it, why isn't it on the map yet" never becomes a real
+  # support question -- Martin's own default (10m) is tuned for large,
+  # slow-to-query production databases, not this app's scale.
+  reload_interval: 30s
+
+  auto_publish:
+    from_schemas: [published]
+    # This app has no PostGIS/tiger-geocoder helper function (or anything
+    # else) it wants exposed as a tile *function* source -- explicit
+    # `false` rather than leaving this to auto_publish's own default, so a
+    # future extension/function added to the `published` schema for some
+    # unrelated reason doesn't silently become a tile endpoint too.
+    functions: false
+    tables:
+      # Matches worker/tasks.py's load_postgis_task exactly -- every
+      # published.<table> gets a BIGSERIAL `id` primary key, so this always
+      # resolves (never falls through to "no id_column set", which would
+      # break MapView.tsx's click handler's `feature.properties.id` lookup).
+      id_columns: [id]
+      # Bare table name, no schema/column decoration -- web/src/lib/
+      # config.ts's `martinTileUrl()` already assumes the Martin source id
+      # IS the plain table name (matches `tableNameFor(slug)` exactly, the
+      # same identifier the frontend, load_postgis_task, and this config
+      # all independently derive the same way). auto_publish's own default
+      # (`table.{schema}.{table}.{column}`) would 404 every dataset's tile
+      # requests instead.
+      source_id_format: "{table}"
+      # Same paint-adjacent values the old Phase-0 fixture entry hardcoded
+      # -- kept identical so switching to auto-discovery doesn't also
+      # silently change existing tile geometry precision/clipping.
       extent: 4096
       buffer: 64
       clip_geom: true
-      properties:
-        id: int8
-        name: text
-        type: text
-        iso_3166_2: text
-        admin: text
-        latitude: float8
-        longitude: float8

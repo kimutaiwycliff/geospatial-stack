@@ -508,11 +508,11 @@ def load_postgis_task(self, prev_result, slug: str, serve_mode: str | None = Non
     and builds tiles (PMTiles or assigns Martin)") can drive this without
     a code entry. `None` (Phase 0/1's engineer-triggered `run_pipeline`
     path, which never passes this) falls back to DATASET_META as before.
-    Phase 4's self-service approval endpoint (app/routers/uploads.py)
-    always passes `serve_mode="pmtiles"` explicitly -- Martin's serve path
-    needs a curator-added dataset to be added to tiles/martin/config.yaml
-    and the container reloaded, which nothing here automates yet, so
-    self-service publishing offers PMTiles only until that's built.
+    Phase 4's self-service approval endpoint (app/routers/uploads.py) now
+    passes whichever of "pmtiles"/"martin" the curator picked -- Martin's
+    own auto-discovery (tiles/martin/config.yaml's `auto_publish`, scoped
+    to the `published` schema) picks up a serve_mode='martin' table on its
+    own within ~30s, no config edit or restart needed anymore.
 
     Overrides celery_app's global 600s/900s limits: the Kenya fixture's 8
     rows finish in seconds, but LandMark's community-lands layer is ~330K

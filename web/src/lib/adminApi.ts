@@ -615,14 +615,15 @@ export function fetchUploadStatus(token: string, slug: string): Promise<UploadSt
 }
 
 /**
- * Curator's explicit "publish this" action. `serveMode` is threaded
- * through as a parameter (rather than hardcoded here) so the call site
- * documents the constraint inline, but the ONLY legal value today is
- * `"pmtiles"` -- the backend 400s on anything else (Martin's static tile
- * config can't pick up a new layer without a manual server-side edit, per
- * the brief), so UploadPanel must not build a picker offering other modes.
+ * Curator's explicit "publish this" action. `serveMode` chooses between a
+ * static PMTiles archive (built once at approval time, served straight
+ * from object storage) and Martin's dynamic tiles (served live from
+ * Postgres, auto-discovered by tiles/martin/config.yaml within ~30s of
+ * this call -- no server-side edit needed anymore, brief follow-up: "give
+ * the admin [the choice] whether it will be from the pmtiles or martin
+ * dynamic tiles").
  */
-export function approveUpload(token: string, slug: string, serveMode: "pmtiles"): Promise<UploadApproveResult> {
+export function approveUpload(token: string, slug: string, serveMode: "pmtiles" | "martin"): Promise<UploadApproveResult> {
   return adminFetch<UploadApproveResult>(adminUploadApproveUrl(slug), token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

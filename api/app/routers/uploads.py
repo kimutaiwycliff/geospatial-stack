@@ -24,6 +24,7 @@ import io
 import os
 import tempfile
 import zipfile
+from typing import Literal
 
 from app.auth.dependencies import require_admin
 from app.db import get_connection
@@ -179,9 +180,15 @@ def upload_status(slug: str, admin: dict = Depends(require_admin)):
 
 
 class ApproveRequest(BaseModel):
-    # Literal["pmtiles"] only -- see load_postgis_task's docstring
-    # (worker/tasks.py) for why Martin isn't offered here yet.
-    serve_mode: str = "pmtiles"
+    # Both real options now (brief follow-up: "give the admin [the choice]
+    # whether it will be from the pmtiles or martin dynamic tiles") --
+    # Martin used to be excluded here because a newly-published table had
+    # no way to become tile-servable without a manual config.yaml edit and
+    # a container restart. tiles/martin/config.yaml now auto-discovers
+    # every table in the `published` schema on a 30s interval, so a
+    # serve_mode='martin' approval just needs load_postgis_task to create
+    # the table -- Martin picks it up on its own from there.
+    serve_mode: Literal["pmtiles", "martin"] = "pmtiles"
 
 
 @router.post("/{slug}/approve")
@@ -191,9 +198,6 @@ def approve_upload(slug: str, body: ApproveRequest = Body(default=ApproveRequest
     not on tier_status alone (curate_task already flips tier_status to
     'curated' before contract_test_task even runs, so tier_status by
     itself can't distinguish "validated" from "not yet checked")."""
-    if body.serve_mode != "pmtiles":
-        raise HTTPException(status_code=400, detail="self-service publishing only supports serve_mode='pmtiles' for now")
-
     conn = get_connection()
     try:
         with conn, conn.cursor() as cur:

@@ -3,7 +3,7 @@
 # deployment.sh couldn't already do by hand -- this just wraps the
 # multi-step or easy-to-typo sequences (wiping volumes, creating the first
 # admin) into single commands. Run `make help` for the list.
-.PHONY: help up down restart build logs ps migrate create-admin build-basemap wipe fresh-start
+.PHONY: help up down restart build logs ps migrate dump-schema create-admin build-basemap wipe fresh-start
 
 help:
 	@echo "make up            -- start the stack (builds images if needed)"
@@ -13,6 +13,7 @@ help:
 	@echo "make logs          -- follow logs for all services (Ctrl-C to stop watching)"
 	@echo "make ps            -- show service status"
 	@echo "make migrate       -- apply any pending db migrations"
+	@echo "make dump-schema   -- regenerate db/schema.sql from db/migrations/ (run after adding a migration)"
 	@echo "make create-admin EMAIL=you@example.org PASSWORD=... -- create/reset an admin account"
 	@echo "make build-basemap [FORCE=true] -- (re)build the self-hosted OSM basemap; \`make up\` already does this once automatically"
 	@echo "make wipe          -- DESTROYS all data (db + uploads + tiles) and stops the stack. Asks to confirm."
@@ -41,6 +42,16 @@ ps:
 # to an ALREADY-running stack and don't want to restart everything else.
 migrate:
 	docker compose run --rm migrate
+
+# Deliberately regenerates db/schema.sql from the CURRENT db/migrations/
+# state -- `migrate`'s own compose command runs with --no-dump-schema (see
+# docker-compose.yml) specifically so routine `make up`/`make migrate` runs
+# never touch this file; use this target right after adding a new migration
+# instead. Run against a freshly-migrated db (no manually-ingested demo
+# data) so the dump reflects db/migrations/ only, not incidental
+# published.<table> tables the ETL pipeline creates at runtime.
+dump-schema:
+	docker compose run --rm migrate dump
 
 # EMAIL/PASSWORD are make variables, not shell env vars -- pass them the
 # same way: `make create-admin EMAIL=foo@bar.org PASSWORD=hunter2`.

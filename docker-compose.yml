@@ -41,7 +41,17 @@ services:
     volumes:
       - ./db:/db
     # dbmate reads DATABASE_URL from .env; runs once and exits 0 on success.
-    command: ["--wait", "up"]
+    # --no-dump-schema: dbmate's default `up` behavior re-dumps db/schema.sql
+    # from whatever the LIVE database currently looks like on every single
+    # run -- including `published.<table>` tables the ETL pipeline creates
+    # dynamically (worker/tasks.py's load_postgis_task), which db/migrations/
+    # never declares at all. That made schema.sql non-deterministic in git:
+    # it churned between "has the demo LandMark tables" and "doesn't" purely
+    # based on whichever dev's local DB happened to have ingested data before
+    # their last `make up`. schema.sql should track db/migrations/ (the
+    # actual source of truth), not incidental pipeline output -- `make
+    # dump-schema` regenerates it deliberately instead.
+    command: ["--wait", "--no-dump-schema", "up"]
 
   # --- One-shot self-hosted basemap build (brief §1.5) -----------------------
   # Same "runs once and exits 0" shape as `migrate` -- extracts a world,

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { AMBER_BADGE_CLASS, tierTintClassName } from "../../lib/statusColors";
 import {
   fetchAdminDatasets,
   fetchDraftStyles,
@@ -22,6 +25,8 @@ import { UploadDatasetModal } from "./UploadDatasetModal";
  * gets the same "default" treatment AdminMapsPage's map status uses for its
  * own "published" value, so the two lists read as the same visual language
  * even though they're different fields on different resources.
+ * `tierTintClassName` (shared with GovernanceBadges/AdminMapsPage, see
+ * lib/statusColors.ts) layers the actual green/amber color on top.
  */
 const TIER_BADGE_VARIANT: Record<AdminDataset["tier_status"], "outline" | "secondary" | "default"> = {
   raw: "outline",
@@ -38,13 +43,22 @@ const TIER_BADGE_VARIANT: Record<AdminDataset["tier_status"], "outline" | "secon
  * Returns null (renders nothing) for every other combination -- a
  * published dataset, or a pre-Phase-4 row with no report at all, has
  * nothing upload-flow-specific worth calling out here.
+ *
+ * "awaiting approval" gets the same amber tint as a curated tier badge (it
+ * IS a curated dataset waiting on a decision) -- "validating…" stays
+ * neutral outline on purpose: nothing needs a curator's attention yet,
+ * amber should mean "there's a decision pending", not "something is still
+ * running". "validation failed" keeps Badge's own red `destructive`
+ * variant, already colored correctly.
  */
-function validationBadge(dataset: AdminDataset): { text: string; variant: "outline" | "secondary" | "destructive" } | null {
+function validationBadge(
+  dataset: AdminDataset,
+): { text: string; variant: "outline" | "secondary" | "destructive"; className?: string } | null {
   if (dataset.tier_status === "raw" && dataset.validation_report === null) {
     return { text: "validating…", variant: "outline" };
   }
   if (dataset.tier_status === "curated" && dataset.validation_report?.passed === true) {
-    return { text: "awaiting approval", variant: "secondary" };
+    return { text: "awaiting approval", variant: "secondary", className: AMBER_BADGE_CLASS };
   }
   if (dataset.tier_status === "curated" && dataset.validation_report?.passed === false) {
     return { text: "validation failed", variant: "destructive" };
@@ -66,6 +80,12 @@ export function AdminDashboard() {
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  // Only tracks the FIRST dataset fetch -- an empty `datasets` array is
+  // otherwise ambiguous between "still loading" and "genuinely no datasets
+  // registered yet", and the list used to just render nothing for that
+  // whole gap. Not reset on subsequent `loadAll()` calls (upload/publish
+  // refreshes) since those already have real rows on screen to show.
+  const [datasetsLoading, setDatasetsLoading] = useState(true);
 
   // `token` is guaranteed non-null here: this component only ever renders
   // inside <RequireAdmin>, which redirects to /admin/login otherwise.
@@ -86,7 +106,8 @@ export function AdminDashboard() {
       .catch((err: unknown) => {
         if (err instanceof UnauthorizedError) return handleUnauthorized();
         setLoadError("Could not load datasets.");
-      });
+      })
+      .finally(() => setDatasetsLoading(false));
     fetchDraftStyles(authToken)
       .then(setDraftStyles)
       .catch((err: unknown) => {
@@ -133,7 +154,11 @@ export function AdminDashboard() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col md:flex-row">
+    // `animate-in fade-in duration-300` on the page root -- the same brief
+    // "route entrance" treatment every top-level page in this app gets, a
+    // cheap way to make navigation feel less abrupt without a router-level
+    // transition library.
+    <div className="flex h-screen w-screen flex-col animate-in fade-in duration-300 md:flex-row">
       <div className="w-full shrink-0 overflow-y-auto border-b border-border bg-background md:h-full md:w-80 md:border-b-0 md:border-r">
         <div className="flex items-center justify-between border-b border-border p-4">
           <h1 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Datasets</h1>
@@ -153,37 +178,75 @@ export function AdminDashboard() {
           </Button>
         </div>
         {loadError && <p className="p-4 text-sm text-destructive">{loadError}</p>}
-        <ul className="flex flex-col">
-          {datasets.map((dataset) => {
-            const badge = validationBadge(dataset);
-            return (
-              <li key={dataset.slug}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedSlug(dataset.slug)}
-                  className={`flex w-full flex-col gap-1 border-b border-border px-4 py-3 text-left hover:bg-muted ${
-                    selectedSlug === dataset.slug ? "bg-accent" : ""
-                  }`}
-                >
-                  <span className="text-sm font-medium text-foreground">{dataset.name}</span>
-                  <span className="flex flex-wrap items-center gap-2 text-xs">
-                    <Badge variant={TIER_BADGE_VARIANT[dataset.tier_status]} className="capitalize">
-                      {dataset.tier_status}
-                    </Badge>
-                    {badge && <Badge variant={badge.variant}>{badge.text}</Badge>}
-                    <span className="text-muted-foreground">{dataset.slug}</span>
-                  </span>
-                </button>
+        {/* Skeleton rows while the very first `/admin/datasets` fetch is in
+            flight -- this list used to just render nothing for that gap,
+            indistinguishable from "no datasets exist". Shape/count is
+            arbitrary (3 rows, roughly this list's usual density), purely a
+            "content is coming" placeholder, not meant to mirror real rows
+            pixel-for-pixel. */}
+        {datasetsLoading && (
+          <ul className="flex flex-col">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="flex flex-col gap-2 border-b border-border px-4 py-3">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        )}
+        {!datasetsLoading && (
+          <ul className="flex flex-col">
+            {datasets.map((dataset) => {
+              const badge = validationBadge(dataset);
+              const isSelected = selectedSlug === dataset.slug;
+              return (
+                <li key={dataset.slug}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSlug(dataset.slug)}
+                    className={cn(
+                      // `border-l-transparent` at rest reserves the same
+                      // 2px selected rows get from `border-l-primary` --
+                      // otherwise selecting a row shifts every row's
+                      // content 2px sideways.
+                      "flex w-full flex-col gap-1 border-b border-l-2 border-border border-l-transparent px-4 py-3 text-left transition-colors duration-150 hover:bg-muted",
+                      // Selected state now carries the signature accent
+                      // (brief: "a hand-styled selected/active state using
+                      // bg-muted/bg-accent instead of a primary-tinted
+                      // highlight") instead of the old neutral `bg-accent`.
+                      isSelected && "border-l-primary bg-primary/10 dark:bg-primary/15",
+                    )}
+                  >
+                    <span className="text-sm font-medium text-foreground">{dataset.name}</span>
+                    <span className="flex flex-wrap items-center gap-2 text-xs">
+                      <Badge variant={TIER_BADGE_VARIANT[dataset.tier_status]} className={cn("capitalize", tierTintClassName(dataset.tier_status))}>
+                        {dataset.tier_status}
+                      </Badge>
+                      {badge && (
+                        <Badge variant={badge.variant} className={badge.className}>
+                          {badge.text}
+                        </Badge>
+                      )}
+                      <span className="text-muted-foreground">{dataset.slug}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         {!selected && <p className="text-sm text-muted-foreground">Select a dataset to edit its governance and styling.</p>}
         {selected && (
           <DatasetDetail
+            // Keyed by slug so switching datasets fully remounts this pane
+            // -- matches the same-slug-keying StylingPanel/UploadStatusPanel/
+            // AuditLogPanel already do one level down (see DatasetDetail.tsx),
+            // and gives the panel's own fade-in (see DatasetDetail.tsx) a
+            // fresh mount to animate on every selection, not just the first.
+            key={selected.slug}
             token={authToken}
             dataset={selected}
             draft={selectedDraft}

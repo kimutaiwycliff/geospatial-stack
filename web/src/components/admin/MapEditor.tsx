@@ -227,7 +227,7 @@ export function MapEditor() {
   const layerFor = (s: string) => values.layers_json.find((l) => l.dataset_slug === s);
 
   return (
-    <div className="flex h-screen w-screen flex-col">
+    <div className="flex h-screen w-screen flex-col animate-in fade-in duration-300">
       <div className="flex items-center justify-between border-b border-border bg-background p-4">
         <div className="flex items-center gap-4">
           <Link to="/admin/maps" className="text-xs text-primary hover:underline">
@@ -341,7 +341,10 @@ export function MapEditor() {
             {visibleDatasets.map((dataset) => {
               const layer = layerFor(dataset.slug);
               return (
-                <li key={dataset.slug} className="flex items-center justify-between gap-3 p-3 text-sm">
+                <li
+                  key={dataset.slug}
+                  className="flex items-center justify-between gap-3 p-3 text-sm transition-colors duration-150 hover:bg-muted/50"
+                >
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={layer != null}
@@ -376,7 +379,11 @@ export function MapEditor() {
           {message && (
             <Alert
               variant={message.kind === "error" ? "destructive" : "default"}
-              className={message.kind === "success" ? `w-auto px-3 py-1.5 ${SUCCESS_ALERT_CLASS}` : "w-auto px-3 py-1.5"}
+              className={
+                message.kind === "success"
+                  ? `w-auto animate-in fade-in px-3 py-1.5 duration-200 ${SUCCESS_ALERT_CLASS}`
+                  : "w-auto animate-in fade-in px-3 py-1.5 duration-200"
+              }
             >
               <AlertDescription className={message.kind === "success" ? SUCCESS_TEXT_CLASS : undefined}>
                 {message.text}

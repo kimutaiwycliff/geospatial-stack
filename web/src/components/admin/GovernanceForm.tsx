@@ -164,12 +164,15 @@ export function GovernanceForm({ token, dataset, onSaved }: { token: string; dat
           {saving ? "Saving…" : "Save"}
         </Button>
         {message && (
+          // `animate-in fade-in` -- a save confirmation/error popping in
+          // instead of snapping in place reads as a direct response to the
+          // click that triggered it, not an unrelated layout shift.
           <Alert
             variant={message.kind === "error" ? "destructive" : "default"}
             className={
               message.kind === "success"
-                ? "w-auto border-green-600/30 bg-transparent px-3 py-1.5 text-green-700 dark:border-green-500/30 dark:text-green-400"
-                : "w-auto px-3 py-1.5"
+                ? "w-auto animate-in fade-in border-green-600/30 bg-transparent px-3 py-1.5 text-green-700 duration-200 dark:border-green-500/30 dark:text-green-400"
+                : "w-auto animate-in fade-in px-3 py-1.5 duration-200"
             }
           >
             <AlertDescription className={message.kind === "success" ? "text-green-700 dark:text-green-400" : undefined}>

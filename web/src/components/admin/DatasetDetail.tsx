@@ -45,7 +45,12 @@ export function DatasetDetail({
   const [tab, setTab] = useState<Tab>("governance");
 
   return (
-    <div className="flex flex-col gap-4">
+    // AdminDashboard now mounts a fresh instance of this component per
+    // selected dataset (`key={selected.slug}`) specifically so this fade-in
+    // replays on every selection, not just the very first -- the brief's
+    // "AdminDashboard's dataset detail panel appearing when a dataset is
+    // selected" animation.
+    <div className="flex flex-col gap-4 animate-in fade-in duration-200">
       <div>
         <h2 className="text-lg font-semibold text-foreground">{dataset.name}</h2>
         <p className="text-xs text-muted-foreground">

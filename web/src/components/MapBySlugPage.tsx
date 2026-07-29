@@ -120,7 +120,7 @@ export function MapBySlugPage() {
 
   if (error) {
     return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center gap-3 bg-background text-center">
+      <div className="flex h-screen w-screen animate-in fade-in flex-col items-center justify-center gap-3 bg-background text-center duration-300">
         <p className="text-sm text-destructive">{error}</p>
         <Link to="/" className={buttonVariants({ variant: "link" })}>
           &larr; Back home
@@ -130,7 +130,7 @@ export function MapBySlugPage() {
   }
 
   return (
-    <div className="relative h-screen w-screen">
+    <div className="relative h-screen w-screen animate-in fade-in duration-300">
       {/* Info card in the corner -- a great fit for shadcn `Card` (brief):
           it's a genuinely floating, self-contained piece of chrome over the
           map, not a full-height pane, so Card's rounded/ring/padding model
@@ -142,7 +142,7 @@ export function MapBySlugPage() {
         // in that mode, wrapping the title one character per line. A fixed
         // base width (still capped by max-w-sm on very narrow viewports)
         // keeps the grid from collapsing.
-        <Card className="absolute left-3 top-3 z-10 w-72 max-w-[calc(100vw-1.5rem)] bg-card/95 py-3 shadow">
+        <Card className="absolute left-3 top-3 z-10 w-72 max-w-[calc(100vw-1.5rem)] animate-in fade-in bg-card/95 py-3 shadow duration-300">
           <CardHeader className="gap-1 px-3">
             <CardTitle className="text-sm">{config.name}</CardTitle>
             {config.description && <CardDescription className="text-xs">{config.description}</CardDescription>}

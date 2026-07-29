@@ -5,6 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { mapStatusTintClassName } from "../../lib/statusColors";
 import { createMap, fetchAdminMaps, UnauthorizedError, type AdminMapSummary } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
 import { ThemeToggle } from "../ThemeToggle";
@@ -13,7 +16,9 @@ import { ThemeToggle } from "../ThemeToggle";
  * map status -> Badge variant. Same "published = default" half of
  * AdminDashboard's TIER_BADGE_VARIANT convention -- draft (this resource's
  * only non-published state) gets "secondary", matching how that list
- * treats its own in-progress tier ("curated").
+ * treats its own in-progress tier ("curated"). `mapStatusTintClassName`
+ * (shared with GovernanceBadges/AdminDashboard, see lib/statusColors.ts)
+ * layers the actual green/amber color on top.
  */
 const STATUS_BADGE_VARIANT: Record<AdminMapSummary["status"], "secondary" | "default"> = {
   draft: "secondary",
@@ -40,6 +45,9 @@ export function AdminMapsPage() {
   const [newName, setNewName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Same "first fetch only" loading flag as AdminDashboard's dataset list --
+  // an empty `maps` array is otherwise ambiguous with "no maps exist yet".
+  const [mapsLoading, setMapsLoading] = useState(true);
 
   const load = useCallback(() => {
     fetchAdminMaps(authToken)
@@ -47,7 +55,8 @@ export function AdminMapsPage() {
       .catch((err: unknown) => {
         if (err instanceof UnauthorizedError) return logout();
         setLoadError("Could not load maps.");
-      });
+      })
+      .finally(() => setMapsLoading(false));
   }, [authToken, logout]);
 
   useEffect(() => {
@@ -78,7 +87,7 @@ export function AdminMapsPage() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col">
+    <div className="flex h-screen w-screen flex-col animate-in fade-in duration-300">
       <div className="flex items-center justify-between border-b border-border bg-background p-4">
         <div className="flex items-center gap-4">
           <Link to="/admin" className="text-xs text-primary hover:underline">
@@ -125,12 +134,12 @@ export function AdminMapsPage() {
           </form>
         )}
         {createError && (
-          <Alert variant="destructive">
+          <Alert variant="destructive" className="animate-in fade-in duration-200">
             <AlertDescription>{createError}</AlertDescription>
           </Alert>
         )}
         {loadError && (
-          <Alert variant="destructive">
+          <Alert variant="destructive" className="animate-in fade-in duration-200">
             <AlertDescription>{loadError}</AlertDescription>
           </Alert>
         )}
@@ -140,22 +149,37 @@ export function AdminMapsPage() {
             tabular data meant to be scanned column-by-column), so the two
             "select an item to manage" screens in this app read as the same
             pattern. */}
-        <ul className="flex flex-col divide-y divide-border rounded-md border border-border bg-card">
-          {maps.length === 0 && !loadError && <li className="p-4 text-sm text-muted-foreground">No maps yet.</li>}
-          {maps.map((map) => (
-            <li key={map.id}>
-              <Link to={`/admin/maps/${map.slug}`} className="flex items-center justify-between gap-3 p-4 hover:bg-muted">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium text-foreground">{map.name}</span>
-                  <span className="text-xs text-muted-foreground">{map.slug}</span>
-                </div>
-                <Badge variant={STATUS_BADGE_VARIANT[map.status]} className="capitalize">
-                  {map.status}
-                </Badge>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        {mapsLoading && (
+          <ul className="flex flex-col divide-y divide-border rounded-md border border-border bg-card">
+            {[0, 1].map((i) => (
+              <li key={i} className="flex flex-col gap-2 p-4">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-3 w-1/4" />
+              </li>
+            ))}
+          </ul>
+        )}
+        {!mapsLoading && (
+          <ul className="flex flex-col divide-y divide-border rounded-md border border-border bg-card">
+            {maps.length === 0 && !loadError && <li className="p-4 text-sm text-muted-foreground">No maps yet.</li>}
+            {maps.map((map) => (
+              <li key={map.id}>
+                <Link
+                  to={`/admin/maps/${map.slug}`}
+                  className="flex items-center justify-between gap-3 p-4 transition-colors duration-150 hover:bg-muted"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium text-foreground">{map.name}</span>
+                    <span className="text-xs text-muted-foreground">{map.slug}</span>
+                  </div>
+                  <Badge variant={STATUS_BADGE_VARIANT[map.status]} className={cn("capitalize", mapStatusTintClassName(map.status))}>
+                    {map.status}
+                  </Badge>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

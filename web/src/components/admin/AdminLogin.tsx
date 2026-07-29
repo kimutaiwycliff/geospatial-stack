@@ -51,7 +51,7 @@ export function AdminLogin() {
       </div>
       <form
         onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-border bg-card p-6 text-card-foreground shadow-sm"
+        className="flex w-full max-w-sm animate-in fade-in slide-in-from-bottom-2 flex-col gap-4 rounded-lg border border-border bg-card p-6 text-card-foreground shadow-sm duration-300"
       >
         <h1 className="text-lg font-semibold text-foreground">Admin sign in</h1>
 
@@ -80,7 +80,7 @@ export function AdminLogin() {
         </div>
 
         {error && (
-          <Alert variant="destructive">
+          <Alert variant="destructive" className="animate-in fade-in duration-200">
             <AlertCircleIcon className="size-4" />
             <AlertDescription>{error}</AlertDescription>
           </Alert>

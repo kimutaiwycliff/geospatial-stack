@@ -68,8 +68,17 @@ body,
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  /* Signature accent: a muted clay/terracotta (brief-adjacent to nothing --
+     a deliberate choice for a land-rights platform, evoking soil/earth/
+     boundary markers, distinct from every hue already claimed by the map's
+     own data-layer palette (mapSources.ts: blue/amber/green/red/purple/
+     teal) so a primary button never reads as "another map layer." Applied
+     ONLY to --primary/--ring (and --chart-1 below, for consistency with
+     any chart that wants a "brand" series) -- every other token stays
+     shadcn's tested neutral scale, one accent color used deliberately
+     rather than a multi-hue reskin. */
+  --primary: oklch(0.58 0.13 40);
+  --primary-foreground: oklch(0.99 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -79,8 +88,8 @@ body,
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
+  --ring: oklch(0.58 0.13 40 / 0.6);
+  --chart-1: oklch(0.58 0.13 40);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
@@ -103,8 +112,12 @@ body,
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  /* Lighter + slightly more saturated than light mode's clay -- needs to
+     stay legible against a near-black surface, same reasoning as every
+     other dark-mode token here being a lightened variant, not an inverted
+     one (see :root's comment for the color's rationale). */
+  --primary: oklch(0.68 0.14 42);
+  --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -114,8 +127,8 @@ body,
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
+  --ring: oklch(0.68 0.14 42 / 0.6);
+  --chart-1: oklch(0.68 0.14 42);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);

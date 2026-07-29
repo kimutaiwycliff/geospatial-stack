@@ -35,7 +35,14 @@ export function LayerPanel({ datasets, visibleSlugs, onToggle }: LayerPanelProps
       <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Layers</h2>
       <ul className="flex flex-col gap-3">
         {mappable.map((dataset, index) => (
-          <li key={dataset.slug} className="rounded-md border border-border p-2">
+          // Neutral hover only (not a primary-tinted one) -- each row already
+          // carries its OWN identifying color via the palette dot below, and
+          // tinting the whole row with the signature accent would compete
+          // with that per-layer color coding rather than complement it.
+          <li
+            key={dataset.slug}
+            className="rounded-md border border-border p-2 transition-colors duration-150 hover:bg-muted/50"
+          >
             <div className="flex items-start gap-2">
               {/* Checkbox -> Switch: a layer toggle is an on/off state change
                   (not a form field being validated/submitted), which is

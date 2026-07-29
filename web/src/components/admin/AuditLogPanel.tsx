@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchAuditLog, UnauthorizedError, type AuditLogEntry } from "../../lib/adminApi";
@@ -66,10 +66,13 @@ export function AuditLogPanel({ token, slug }: { token: string; slug: string }) 
         className="w-full justify-between rounded-b-none px-3 py-2 font-medium text-foreground"
       >
         <span>Audit history</span>
-        {expanded ? <ChevronUpIcon className="size-4" /> : <ChevronDownIcon className="size-4" />}
+        {/* One icon that rotates rather than swapping between Up/Down --
+            `transition-transform` turns "expanded" into a genuine animated
+            state change instead of an instant icon replacement. */}
+        <ChevronDownIcon className={`size-4 transition-transform duration-150 ${expanded ? "rotate-180" : ""}`} />
       </Button>
       {expanded && (
-        <div className="border-t border-border p-3">
+        <div className="animate-in fade-in border-t border-border p-3 duration-150">
           {error && <p className="text-sm text-destructive">{error}</p>}
           {!error && entries === null && <p className="text-sm text-muted-foreground">Loading&hellip;</p>}
           {entries !== null && entries.length === 0 && <p className="text-sm text-muted-foreground">No history yet.</p>}

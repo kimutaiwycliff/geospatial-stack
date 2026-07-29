@@ -1,4 +1,6 @@
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { sensitivityTintClassName } from "../lib/statusColors";
 import type { Dataset } from "../lib/api";
 
 /**
@@ -11,7 +13,11 @@ import type { Dataset } from "../lib/api";
  * being "non-optional". This exact mapping (public/restricted/withheld ->
  * secondary/outline/destructive) is the ONE convention used everywhere
  * sensitivity is shown (also GovernanceForm's select options) -- don't
- * invent a second one elsewhere.
+ * invent a second one elsewhere. `sensitivityTintClassName` (shared with
+ * AdminDashboard's tier badge and AdminMapsPage's map-status badge) layers
+ * an actual green/amber color on top of that variant -- see
+ * lib/statusColors.ts for why withheld is left to shadcn's own red
+ * `destructive` variant instead of a fourth tint.
  */
 const SENSITIVITY_BADGE_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = {
   public: "secondary",
@@ -21,7 +27,11 @@ const SENSITIVITY_BADGE_VARIANT: Record<string, "secondary" | "outline" | "destr
 
 function SensitivityBadge({ sensitivity }: { sensitivity: string }) {
   const variant = SENSITIVITY_BADGE_VARIANT[sensitivity] ?? "outline";
-  return <Badge variant={variant} className="capitalize">{sensitivity}</Badge>;
+  return (
+    <Badge variant={variant} className={cn("capitalize", sensitivityTintClassName(sensitivity))}>
+      {sensitivity}
+    </Badge>
+  );
 }
 
 /**

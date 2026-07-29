@@ -137,12 +137,15 @@ export function StylingPanel({
           {publishing ? "Publishing…" : "Publish"}
         </Button>
         {message && (
+          // Same fade-in-on-appear as GovernanceForm's identical save/publish
+          // confirmation -- these two forms already share this Alert
+          // convention, so they share the animation too.
           <Alert
             variant={message.kind === "error" ? "destructive" : "default"}
             className={
               message.kind === "success"
-                ? "w-auto border-green-600/30 bg-transparent px-3 py-1.5 text-green-700 dark:border-green-500/30 dark:text-green-400"
-                : "w-auto px-3 py-1.5"
+                ? "w-auto animate-in fade-in border-green-600/30 bg-transparent px-3 py-1.5 text-green-700 duration-200 dark:border-green-500/30 dark:text-green-400"
+                : "w-auto animate-in fade-in px-3 py-1.5 duration-200"
             }
           >
             <AlertDescription className={message.kind === "success" ? "text-green-700 dark:text-green-400" : undefined}>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   approveUpload,
@@ -63,6 +63,23 @@ const AMBER_ALERT_CLASS = "border-amber-600/30 bg-amber-50 text-amber-800 dark:b
 const AMBER_TEXT_CLASS = "text-amber-800 dark:text-amber-300";
 const BLUE_ALERT_CLASS = "border-blue-600/30 bg-blue-50 text-blue-800 dark:border-blue-500/30 dark:bg-blue-950/30 dark:text-blue-300";
 const BLUE_TEXT_CLASS = "text-blue-800 dark:text-blue-300";
+
+/**
+ * Maps the real, already-polled state (`tier_status` + `validation_report`)
+ * onto a stage label + percentage -- NOT a fabricated smoothly-incrementing
+ * progress bar, since nothing here actually knows how far through a
+ * multi-minute DuckDB validation run a given upload is. Two genuine
+ * checkpoints exist between "just uploaded" and "report ready" --
+ * ingest_task flips tier_status to 'raw' immediately, curate_task flips it
+ * to 'curated' before contract_test_task (which produces the report) even
+ * starts (see worker/tasks.py) -- so this is honest, discrete progress
+ * across REAL state transitions, not a timer-driven animation pretending
+ * to know more than the backend has told us.
+ */
+function ingestStage(status: UploadStatus): { label: string; value: number } {
+  if (status.tier_status === "curated") return { label: "Validating", value: 66 };
+  return { label: "Ingesting", value: 30 };
+}
 
 /**
  * Validation report + approve/publish tab (brief §16 steps 2-6). Polls
@@ -170,13 +187,13 @@ export function UploadStatusPanel({
   return (
     <div className="flex flex-col gap-4 pt-4">
       {pollError && (
-        <Alert className={AMBER_ALERT_CLASS}>
+        <Alert className={`animate-in fade-in duration-200 ${AMBER_ALERT_CLASS}`}>
           <AlertDescription className={AMBER_TEXT_CLASS}>{pollError}</AlertDescription>
         </Alert>
       )}
 
       {status.tier_status === "published" && (
-        <Alert className={SUCCESS_ALERT_CLASS}>
+        <Alert className={`animate-in fade-in duration-200 ${SUCCESS_ALERT_CLASS}`}>
           <AlertDescription className={SUCCESS_TEXT_CLASS}>
             Published{status.serve_mode ? ` (serve_mode: ${status.serve_mode})` : ""}.
           </AlertDescription>
@@ -184,31 +201,32 @@ export function UploadStatusPanel({
       )}
 
       {awaitingPublish && status.tier_status !== "published" && (
-        <Alert className={BLUE_ALERT_CLASS}>
-          <AlertDescription className={BLUE_TEXT_CLASS}>
-            Publish requested -- waiting for the tile build to finish. This page keeps polling; feel free to switch
-            datasets and come back.
-          </AlertDescription>
-        </Alert>
+        <div className="flex flex-col gap-2 animate-in fade-in duration-200">
+          <Alert className={BLUE_ALERT_CLASS}>
+            <AlertDescription className={BLUE_TEXT_CLASS}>
+              Publish requested -- waiting for the tile build to finish. This page keeps polling; feel free to switch
+              datasets and come back.
+            </AlertDescription>
+          </Alert>
+          {/* No sub-step signal exists for "publishing" the way ingest/
+              validate has raw-vs-curated (load_postgis_task and
+              build_pmtiles_task each just run to completion or fail, with
+              nothing in between reported to the API) -- animate-pulse
+              communicates "still working," the fixed value doesn't claim
+              to know a real percentage the backend never told us. */}
+          <Progress value={80} className="animate-pulse" />
+        </div>
       )}
 
       {stillValidating && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2 animate-in fade-in duration-200">
           <Alert className={AMBER_ALERT_CLASS}>
             <AlertDescription className={AMBER_TEXT_CLASS}>
-              Still validating&hellip; this can take anywhere from a few seconds to a couple of minutes for larger
-              files. You can navigate away and come back -- this just re-checks status, nothing is lost.
+              {ingestStage(status).label}&hellip; this can take anywhere from a few seconds to a couple of minutes
+              for larger files. You can navigate away and come back -- this just re-checks status, nothing is lost.
             </AlertDescription>
           </Alert>
-          {/* Skeleton placeholder for the report that will land here once
-              validation finishes -- a long blocking spinner reads as "stuck"
-              for an operation that can genuinely take minutes (brief's
-              loading-state guidance: skeleton over spinner for >1s work). */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
+          <Progress value={ingestStage(status).value} />
         </div>
       )}
 
@@ -217,7 +235,7 @@ export function UploadStatusPanel({
       )}
 
       {report && (
-        <Card>
+        <Card className="animate-in fade-in duration-200">
           <CardContent className="flex flex-col gap-3">
             <Alert variant={report.passed ? "default" : "destructive"} className={report.passed ? SUCCESS_ALERT_CLASS : undefined}>
               <AlertDescription className={report.passed ? SUCCESS_TEXT_CLASS : undefined}>

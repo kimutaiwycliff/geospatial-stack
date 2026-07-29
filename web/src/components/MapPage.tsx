@@ -119,7 +119,7 @@ export function MapPage() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col md:flex-row">
+    <div className="flex h-screen w-screen flex-col animate-in fade-in duration-300 md:flex-row">
       {/* Filters/layers sidebar -- an overlay drawer under md, a fixed
           column at md+ (brief §6.2 "responsive desktop/mobile"). */}
       <div
@@ -172,10 +172,15 @@ export function MapPage() {
         </div>
       </div>
 
-      {/* Side panel -- overlay drawer under md, fixed column at md+. */}
+      {/* Side panel -- overlay drawer under md, fixed column at md+. Slides
+          in from the right on mount (brief: "SidePanel.tsx sliding in when
+          a feature/country is selected") -- only plays on this wrapper's
+          FIRST mount (selection: null -> non-null), not on every subsequent
+          feature click while it's already open, since re-triggering it per
+          click would be more motion than a "necessary" micro-interaction. */}
       {selection && (
         <div
-          className={`z-30 w-full shrink-0 md:block md:h-full md:w-80 ${
+          className={`z-30 w-full shrink-0 animate-in fade-in slide-in-from-right-4 duration-200 md:block md:h-full md:w-80 ${
             panelOpenMobile ? "fixed inset-0" : "hidden"
           } md:relative md:inset-auto`}
         >

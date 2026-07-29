@@ -59,12 +59,12 @@ export function CountrySearch({ countries, selectedIso, onSelect }: CountrySearc
         </div>
       )}
       {open && matches.length > 0 && (
-        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-popover shadow-lg">
+        <ul className="absolute z-20 mt-1 max-h-56 w-full animate-in fade-in overflow-auto rounded-md border border-border bg-popover shadow-lg duration-150">
           {matches.map((c) => (
             <li key={c.iso_code}>
               <button
                 type="button"
-                className="block w-full px-3 py-1.5 text-left text-sm text-popover-foreground hover:bg-accent"
+                className="block w-full px-3 py-1.5 text-left text-sm text-popover-foreground transition-colors duration-150 hover:bg-accent"
                 onClick={() => {
                   onSelect(c);
                   setQuery("");

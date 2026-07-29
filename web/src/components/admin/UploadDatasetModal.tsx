@@ -112,7 +112,7 @@ export function UploadDatasetModal({
           </div>
 
           {error && (
-            <Alert variant="destructive">
+            <Alert variant="destructive" className="animate-in fade-in duration-200">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}

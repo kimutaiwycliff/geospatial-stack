@@ -30,7 +30,15 @@ COPY common.py .
 # default (no Dockerfile anywhere had a USER directive). This one only
 # reads a public tile source and writes to S3/MinIO over the network --
 # no reason for it to hold root inside its own container while doing so.
-RUN useradd --system --no-create-home --uid 10001 appuser
+#
+# --create-home (not --no-create-home): the sibling api/Dockerfile's
+# identical --no-create-home broke DuckDB in production (no real, writable
+# home directory for it to resolve `~/.duckdb` against -- see that file's
+# comment) -- the go-pmtiles CLI/boto3 here haven't shown the same failure,
+# but there's no upside to leaving this container without a real home
+# directory either, and it's one line to avoid the same class of bug
+# resurfacing here later.
+RUN useradd --system --create-home --uid 10001 appuser
 USER appuser
 
 CMD ["python3", "build_basemap.py"]

@@ -40,11 +40,17 @@ COPY worker/ ./worker/
 # specifically runs DuckDB/GDAL/tippecanoe against arbitrary curator-
 # uploaded data, so a future parsing bug there getting root inside the
 # container is a materially worse outcome than getting a restricted user.
-# Nothing any of the four services do needs root: pip installs above
-# already ran as root (needed for system site-packages), everything after
-# this only reads its own already-copied source, writes to /tmp (world-
-# writable) or talks to Postgres/Redis/S3 over the network.
-RUN useradd --system --no-create-home --uid 10001 appuser
+#
+# --create-home (NOT --no-create-home, which this originally used): DuckDB
+# needs a real, writable home directory of its own (it resolves one to
+# `~/.duckdb` for extension installation/config state regardless of
+# whether the worker's own code ever touches it) and errors outright --
+# "Can't find the home directory at '/home/appuser'" -- if `/etc/passwd`
+# points at a home dir that was never actually created on disk, which is
+# exactly what `--no-create-home` did. A real production upload hit this:
+# every DuckDB-backed ingest (worker/tasks.py's `_run_ingest`) failed
+# after this image's non-root switch, until caught and fixed here.
+RUN useradd --system --create-home --uid 10001 appuser
 USER appuser
 
 # docker-compose.yml's healthcheck curls http://localhost:8000/healthz from

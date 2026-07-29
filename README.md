@@ -11,13 +11,23 @@ record (mission, architecture, data model, security defaults, roadmap).
 
 ```
 cp .env.example .env      # or scripts/bootstrap-new-deployment.sh for a new deployment, see below
-docker compose up -d
-docker compose exec api python -m app.create_admin <email> <password>
+make up
+make create-admin EMAIL=<email> PASSWORD=<password>
 ```
 
 Public site: `http://localhost:8080` (via Caddy). Admin: `/admin/login`.
 API docs: `http://localhost:8000/docs`. Flower (Celery): `:5555`. Grafana:
 `:3001` (local dev only, see `docker-compose.override.yml`).
+
+`make help` lists every shortcut (`up`/`down`/`restart`/`build`/`logs`/`ps`/
+`migrate`/`create-admin`/`wipe`/`fresh-start`). **There is no signup page,
+by design** (see docs/reuse.md's governance notes) -- `make create-admin`
+is the only way to create OR reset an admin account, and it's an upsert:
+running it again for an existing email just resets that account's
+password. `make wipe` / `make fresh-start` destroy all data (every
+dataset, map, admin account, audit log entry) with no undo short of
+`docs/backups.md`'s restore procedure -- both ask for a typed confirmation
+before doing anything.
 
 ## What's built
 

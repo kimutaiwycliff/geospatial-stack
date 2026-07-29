@@ -81,27 +81,52 @@ export function paletteColor(index: number): string {
   return PALETTE[index % PALETTE.length];
 }
 
-export function buildFillLayer(dataset: Dataset, colorIndex: number): LayerSpecification {
+/** A layer's published style_json (brief §6.3), as returned by the public
+ * `GET /styles/published` -- optional single-value paint overrides. Kept
+ * as a loose partial rather than importing StyleJson from adminApi.ts,
+ * since this is public rendering code that shouldn't need to know about
+ * that module's admin-flavored types. */
+export interface PublishedStyleOverride {
+  "fill-color"?: string;
+  "fill-opacity"?: number;
+}
+
+/**
+ * `style` is the dataset's PUBLISHED style_json, if any (brief §6.3's
+ * styling panel) -- looked up by slug from `GET /styles/published`
+ * (public, no auth) by whichever page is rendering (MapView.tsx/
+ * MapBySlugPage.tsx). Falls back to the qualitative palette when a layer
+ * has never been styled, exactly as before -- this is what actually
+ * connects the admin styling panel's Save/Publish buttons to what a
+ * visitor sees; without it, publishing a style silently did nothing on
+ * the public map (a real gap this fixes, not a hypothetical one).
+ */
+export function buildFillLayer(dataset: Dataset, colorIndex: number, style?: PublishedStyleOverride): LayerSpecification {
   return {
     id: fillLayerId(dataset.slug),
     type: "fill",
     source: sourceId(dataset.slug),
     "source-layer": tableNameFor(dataset.slug),
     paint: {
-      "fill-color": paletteColor(colorIndex),
-      "fill-opacity": 0.35,
+      "fill-color": style?.["fill-color"] ?? paletteColor(colorIndex),
+      "fill-opacity": style?.["fill-opacity"] ?? 0.35,
     },
   };
 }
 
-export function buildOutlineLayer(dataset: Dataset, colorIndex: number): LayerSpecification {
+export function buildOutlineLayer(dataset: Dataset, colorIndex: number, style?: PublishedStyleOverride): LayerSpecification {
   return {
     id: outlineLayerId(dataset.slug),
     type: "line",
     source: sourceId(dataset.slug),
     "source-layer": tableNameFor(dataset.slug),
     paint: {
-      "line-color": paletteColor(colorIndex),
+      // The outline reuses the fill's own color (darkened via opacity 1
+      // vs the fill's own alpha) rather than the flat palette line color
+      // once a custom fill-color is set -- an outline that stays the old
+      // palette hue while the fill is a curator-chosen color looks like a
+      // mismatched two-tone layer, not "the same layer with a border."
+      "line-color": style?.["fill-color"] ?? paletteColor(colorIndex),
       "line-width": 1.5,
     },
   };

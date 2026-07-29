@@ -7,6 +7,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { Map as MapLibreMap, Popup, type LngLatBoundsLike, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchFeature, isMappable, type Dataset } from "../lib/api";
+import { fetchPublishedStyles } from "../lib/adminApi";
 import { buildBaseStyle } from "../lib/basemapStyle";
 import { geometryBounds, unionBounds } from "../lib/geo";
 import {
@@ -17,6 +18,7 @@ import {
   fillLayerId,
   outlineLayerId,
   sourceId,
+  type PublishedStyleOverride,
 } from "../lib/mapSources";
 import { REGION_CENTROIDS, WORLD_VIEW } from "../lib/regionCentroids";
 import { tableNameFor } from "../lib/config";
@@ -190,15 +192,26 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || layersAddedRef.current || datasets.length === 0) return;
+    layersAddedRef.current = true; // claim it up front -- see the catch below for why
 
     const mappable = datasets.filter(isMappable);
-    mappable.forEach((dataset, index) => {
-      map.addSource(sourceId(dataset.slug), buildVectorSource(dataset));
-      map.addLayer(buildFillLayer(dataset, index));
-      map.addLayer(buildOutlineLayer(dataset, index));
-    });
-    fillLayerIdsRef.current = mappable.map((d) => fillLayerId(d.slug));
-    layersAddedRef.current = true;
+    // Published styles (brief §6.3) are fetched here, not baked into
+    // `/datasets` itself -- a layer with no published style yet is the
+    // common case (most datasets are still on the palette default), and
+    // this keeps that lookup a single best-effort side call rather than
+    // coupling the registry endpoint to the styling feature.
+    fetchPublishedStyles()
+      .then((styles) => new Map(styles.map((s) => [s.slug, s.style_json as PublishedStyleOverride])))
+      .catch(() => new Map<string, PublishedStyleOverride>()) // no published styles yet is not an error -- render on palette defaults
+      .then((styleBySlug) => {
+        mappable.forEach((dataset, index) => {
+          const style = styleBySlug.get(dataset.slug);
+          map.addSource(sourceId(dataset.slug), buildVectorSource(dataset));
+          map.addLayer(buildFillLayer(dataset, index, style));
+          map.addLayer(buildOutlineLayer(dataset, index, style));
+        });
+        fillLayerIdsRef.current = mappable.map((d) => fillLayerId(d.slug));
+      });
   }, [ready, datasets]);
 
   // Layer-toggle effect (brief §6.2 "layer toggles"): only touches

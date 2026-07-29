@@ -5,7 +5,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { fetchDatasets, isMappable, type Dataset } from "../lib/api";
-import { fetchMap, type PublicMapConfig } from "../lib/adminApi";
+import { fetchMap, fetchPublishedStyles, type PublicMapConfig } from "../lib/adminApi";
 import { buildBaseStyle } from "../lib/basemapStyle";
 import { applyMapControls } from "../lib/mapControls";
 import {
@@ -16,6 +16,7 @@ import {
   fillLayerId,
   outlineLayerId,
   sourceId,
+  type PublishedStyleOverride,
 } from "../lib/mapSources";
 import { WORLD_VIEW } from "../lib/regionCentroids";
 import { ThemeToggle } from "./ThemeToggle";
@@ -85,15 +86,26 @@ export function MapBySlugPage() {
     mapRef.current = map;
     applyMapControls(map, config.controls_json);
 
+    // Published styles (brief §6.3) -- see MapView.tsx's identical fetch
+    // for why this is a separate best-effort call rather than baked into
+    // `config`/`/datasets`: most layers have never been styled, and a
+    // missing style shouldn't block rendering on the palette default.
+    const stylesPromise = fetchPublishedStyles()
+      .then((styles) => new Map(styles.map((s) => [s.slug, s.style_json as PublishedStyleOverride])))
+      .catch(() => new Map<string, PublishedStyleOverride>());
+
     map.on("load", () => {
-      entries.forEach(({ layer, dataset }, index) => {
-        map.addSource(sourceId(dataset.slug), buildVectorSource(dataset));
-        map.addLayer(buildFillLayer(dataset, index));
-        map.addLayer(buildOutlineLayer(dataset, index));
-        if (!layer.visible) {
-          map.setLayoutProperty(fillLayerId(dataset.slug), "visibility", "none");
-          map.setLayoutProperty(outlineLayerId(dataset.slug), "visibility", "none");
-        }
+      void stylesPromise.then((styleBySlug) => {
+        entries.forEach(({ layer, dataset }, index) => {
+          const style = styleBySlug.get(dataset.slug);
+          map.addSource(sourceId(dataset.slug), buildVectorSource(dataset));
+          map.addLayer(buildFillLayer(dataset, index, style));
+          map.addLayer(buildOutlineLayer(dataset, index, style));
+          if (!layer.visible) {
+            map.setLayoutProperty(fillLayerId(dataset.slug), "visibility", "none");
+            map.setLayoutProperty(outlineLayerId(dataset.slug), "visibility", "none");
+          }
+        });
       });
 
       const fillLayerIds = entries.map(({ dataset }) => fillLayerId(dataset.slug));

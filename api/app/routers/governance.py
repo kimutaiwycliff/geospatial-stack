@@ -44,14 +44,22 @@ def list_all_datasets(admin: dict = Depends(require_admin)):
     """Every registry row regardless of tier_status -- unlike the public
     `GET /datasets` (main.py), the admin dashboard needs to see raw/curated
     datasets too so a curator can classify sensitivity before a layer is
-    ever published, not just after."""
+    ever published, not just after.
+
+    `schema_json` (column names -> DuckDB type strings, set once by
+    ingest_task's `_schema_json` for every dataset regardless of how it was
+    ingested) rides along here so the styling panel can offer a real
+    "which field is the label" dropdown instead of a free-text input a
+    curator could typo -- this is the one universal source of "what
+    attributes does this dataset actually have," unlike validation_report's
+    `fields`, which is only populated for self-service uploads."""
     conn = get_connection()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, slug, name, description, source, license, attribution,
-                       sensitivity, tier_status, serve_mode, validation_report, created_at, updated_at
+                       sensitivity, tier_status, serve_mode, validation_report, schema_json, created_at, updated_at
                 FROM registry.datasets
                 ORDER BY name
                 """

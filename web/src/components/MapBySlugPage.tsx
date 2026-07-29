@@ -11,10 +11,12 @@ import { applyMapControls } from "../lib/mapControls";
 import { BasemapSwitcher } from "./BasemapSwitcher";
 import {
   buildFillLayer,
+  buildLabelLayer,
   buildOutlineLayer,
   buildVectorSource,
   datasetSlugFromLayerId,
   fillLayerId,
+  labelLayerId,
   outlineLayerId,
   sourceId,
   type PublishedStyleOverride,
@@ -119,9 +121,12 @@ export function MapBySlugPage() {
           map.addSource(sourceId(dataset.slug), buildVectorSource(dataset));
           map.addLayer(buildFillLayer(dataset, index, style));
           map.addLayer(buildOutlineLayer(dataset, index, style));
+          const labelLayer = buildLabelLayer(dataset, style);
+          if (labelLayer) map.addLayer(labelLayer);
           if (!layer.visible) {
             map.setLayoutProperty(fillLayerId(dataset.slug), "visibility", "none");
             map.setLayoutProperty(outlineLayerId(dataset.slug), "visibility", "none");
+            if (labelLayer) map.setLayoutProperty(labelLayerId(dataset.slug), "visibility", "none");
           }
         });
       });

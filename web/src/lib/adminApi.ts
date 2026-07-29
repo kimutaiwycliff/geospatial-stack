@@ -52,6 +52,13 @@ export interface AdminDataset {
    * TIER_STYLES-adjacent badge logic).
    */
   validation_report: ValidationReport | null;
+  /** Column name -> DuckDB type string, set once at ingest time regardless
+   * of how the dataset was ingested (engineer-triggered or self-service
+   * upload) -- the styling panel's label-field picker builds its dropdown
+   * from this rather than a free-text input. `bbox` (an internal struct
+   * column every dataset carries, not a real attribute) is filtered out by
+   * the caller, not here -- see StylingPanel's `labelFieldOptions`. */
+  schema_json: Record<string, string> | null;
 }
 
 /** Every field optional on purpose -- this is a PATCH-shaped partial update
@@ -67,13 +74,47 @@ export interface GovernancePatch {
   sensitivity?: "public" | "restricted" | "withheld";
 }
 
-/** The single-value paint properties this phase's styling panel edits --
- * see mapSources.ts's buildFillLayer/buildOutlineLayer for the hardcoded
- * defaults this is meant to eventually override (brief §6.3: "single-value
- * styling first"). */
+/** Data-driven label config, one row of `StyleJson.label` -- `field` is a
+ * column name from the dataset's `schema_json` (see AdminDataset's own
+ * doc comment), rendered via a `symbol` layer's `text-field`. Kept as its
+ * own interface (not flattened into StyleJson) because it's genuinely
+ * optional as a WHOLE unit -- a dataset with labels off has none of these
+ * fields meaningfully set, unlike fill/line paint values which always
+ * apply once a layer renders at all. */
+export interface LabelStyle {
+  enabled: boolean;
+  field: string;
+  size: number;
+  color: string;
+  haloColor: string;
+  haloWidth: number;
+}
+
+/**
+ * The single-value paint properties this phase's styling panel edits --
+ * see mapSources.ts's buildFillLayer/buildOutlineLayer/buildLabelLayer for
+ * the hardcoded defaults this is meant to override (brief §6.3:
+ * "single-value styling first" -- still true here: every property below is
+ * ONE value applied uniformly across a layer's features, never a
+ * data-driven expression/rule/classification the way a full desktop GIS
+ * styling panel offers -- see GeoLibre's own StylePanel.tsx for how much
+ * further that rabbit hole goes, deliberately not followed here).
+ *
+ * `line-*` fields are all optional -- undefined means "inherit the old
+ * hardcoded default" (see buildOutlineLayer), so a dataset styled before
+ * this expansion, or a fresh draft that only touches fill-color, doesn't
+ * need every new field populated to remain valid.
+ */
 export interface StyleJson {
   "fill-color": string;
   "fill-opacity": number;
+  "line-color"?: string;
+  "line-width"?: number;
+  "line-opacity"?: number;
+  /** Undefined/empty = solid. A small preset set (solid/dashed/dotted/
+   * dash-dot), not a raw array editor -- see StylingPanel's `DASH_PRESETS`. */
+  "line-dasharray"?: number[];
+  label?: LabelStyle;
 }
 
 /** One row of `GET /admin/styles/draft` -- a dataset's saved-but-unpublished style. */

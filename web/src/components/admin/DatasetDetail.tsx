@@ -128,7 +128,7 @@ export function DatasetDetail({
           <GovernanceForm token={token} dataset={dataset} onSaved={onGovernanceSaved} />
         </TabsContent>
         <TabsContent value="styling">
-          <StylingPanel key={dataset.slug} token={token} slug={dataset.slug} draft={draft} onDraftSaved={onDraftSaved} />
+          <StylingPanel key={dataset.slug} token={token} dataset={dataset} draft={draft} onDraftSaved={onDraftSaved} />
         </TabsContent>
         <TabsContent value="publishing">
           <UploadStatusPanel key={dataset.slug} token={token} dataset={dataset} onStatusChange={onDatasetPatch} />

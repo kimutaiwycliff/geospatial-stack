@@ -12,10 +12,12 @@ import { applyBasemapFlavor, buildBaseStyle, DEFAULT_BASEMAP_FLAVOR, type Basema
 import { geometryBounds, unionBounds } from "../lib/geo";
 import {
   buildFillLayer,
+  buildLabelLayer,
   buildOutlineLayer,
   buildVectorSource,
   datasetSlugFromLayerId,
   fillLayerId,
+  labelLayerId,
   outlineLayerId,
   sourceId,
   type PublishedStyleOverride,
@@ -220,6 +222,8 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
           map.addSource(sourceId(dataset.slug), buildVectorSource(dataset));
           map.addLayer(buildFillLayer(dataset, index, style));
           map.addLayer(buildOutlineLayer(dataset, index, style));
+          const labelLayer = buildLabelLayer(dataset, style);
+          if (labelLayer) map.addLayer(labelLayer);
         });
         fillLayerIdsRef.current = mappable.map((d) => fillLayerId(d.slug));
       });
@@ -252,6 +256,9 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       }
       if (map.getLayer(outlineLayerId(dataset.slug))) {
         map.setLayoutProperty(outlineLayerId(dataset.slug), "visibility", visibility);
+      }
+      if (map.getLayer(labelLayerId(dataset.slug))) {
+        map.setLayoutProperty(labelLayerId(dataset.slug), "visibility", visibility);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `datasets`

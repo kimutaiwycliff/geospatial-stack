@@ -1,4 +1,4 @@
-import type { LayerSpecification, VectorSourceSpecification } from "maplibre-gl";
+import type { LayerSpecification, LineLayerSpecification, VectorSourceSpecification } from "maplibre-gl";
 import type { Dataset } from "./api";
 import { martinTileUrl, pmtilesUrlFor, tableNameFor } from "./config";
 
@@ -17,12 +17,15 @@ export function fillLayerId(slug: string): string {
 export function outlineLayerId(slug: string): string {
   return `outline:${slug}`;
 }
+export function labelLayerId(slug: string): string {
+  return `label:${slug}`;
+}
 
 /** Recovers the dataset slug from one of the layer ids above -- used by the
  * click handler to go from "which layer did queryRenderedFeatures hit" back
  * to "which dataset's /features/{slug}/{id} do I call". */
 export function datasetSlugFromLayerId(layerId: string): string | null {
-  const match = /^(?:fill|outline):(.+)$/.exec(layerId);
+  const match = /^(?:fill|outline|label):(.+)$/.exec(layerId);
   return match ? match[1] : null;
 }
 
@@ -82,13 +85,26 @@ export function paletteColor(index: number): string {
 }
 
 /** A layer's published style_json (brief §6.3), as returned by the public
- * `GET /styles/published` -- optional single-value paint overrides. Kept
- * as a loose partial rather than importing StyleJson from adminApi.ts,
- * since this is public rendering code that shouldn't need to know about
- * that module's admin-flavored types. */
+ * `GET /styles/published` -- optional single-value paint overrides, plus
+ * the optional label config. Kept as a loose partial rather than importing
+ * StyleJson from adminApi.ts, since this is public rendering code that
+ * shouldn't need to know about that module's admin-flavored types --
+ * mirrors that type's shape by hand instead. */
 export interface PublishedStyleOverride {
   "fill-color"?: string;
   "fill-opacity"?: number;
+  "line-color"?: string;
+  "line-width"?: number;
+  "line-opacity"?: number;
+  "line-dasharray"?: number[];
+  label?: {
+    enabled: boolean;
+    field: string;
+    size: number;
+    color: string;
+    haloColor: string;
+    haloWidth: number;
+  };
 }
 
 /**
@@ -115,19 +131,75 @@ export function buildFillLayer(dataset: Dataset, colorIndex: number, style?: Pub
 }
 
 export function buildOutlineLayer(dataset: Dataset, colorIndex: number, style?: PublishedStyleOverride): LayerSpecification {
+  const paint: LineLayerSpecification["paint"] = {
+    // `line-color` falls back to the fill's own color (not the flat
+    // palette line color) once a custom fill-color is set with no explicit
+    // line-color override -- an outline that stays the old palette hue
+    // while the fill is a curator-chosen color looks like a mismatched
+    // two-tone layer, not "the same layer with a border." This is also
+    // what makes a LineString-only dataset (roads/rivers -- `fill` layers
+    // render nothing for non-polygon geometry, so THIS is the layer that
+    // actually draws them) get a sensible color with zero extra styling.
+    "line-color": style?.["line-color"] ?? style?.["fill-color"] ?? paletteColor(colorIndex),
+    "line-width": style?.["line-width"] ?? 1.5,
+    "line-opacity": style?.["line-opacity"] ?? 1,
+  };
+  // Omitted entirely (not set to an empty array) when unstyled -- MapLibre
+  // treats an empty `line-dasharray` as a real (degenerate) dash pattern,
+  // not "no dashes", so "solid" has to mean "the property isn't set at all".
+  if (style?.["line-dasharray"] && style["line-dasharray"].length > 0) {
+    paint["line-dasharray"] = style["line-dasharray"];
+  }
   return {
     id: outlineLayerId(dataset.slug),
     type: "line",
     source: sourceId(dataset.slug),
     "source-layer": tableNameFor(dataset.slug),
+    paint,
+  };
+}
+
+/**
+ * Data-driven label layer (brief follow-up: "this should also apply to
+ * labelling"). `null` when labels aren't enabled or no field is chosen --
+ * callers (MapView.tsx/MapBySlugPage.tsx) simply skip `addLayer` in that
+ * case, same "no style row yet -> render nothing extra" pattern the fill/
+ * outline layers already follow for an unstyled dataset.
+ *
+ * `["to-string", ["get", field]]` rather than a bare `["get", field]` --
+ * `text-field` needs a Formatted/string value, and a numeric or boolean
+ * attribute (registry.datasets.schema_json can name any DuckDB column
+ * type as the label field) would otherwise silently fail to render as
+ * text. `text-font` names the exact font @protomaps/basemaps' own label
+ * layers use (see node_modules/@protomaps/basemaps/src/base_layers.ts) --
+ * this app's basemap style already sets a style-wide `glyphs` URL
+ * (basemapStyle.ts) that serves that font, so no extra glyph config is
+ * needed for a dataset's own labels to render with it.
+ */
+export function buildLabelLayer(dataset: Dataset, style?: PublishedStyleOverride): LayerSpecification | null {
+  const label = style?.label;
+  if (!label?.enabled || !label.field) return null;
+  return {
+    id: labelLayerId(dataset.slug),
+    type: "symbol",
+    source: sourceId(dataset.slug),
+    "source-layer": tableNameFor(dataset.slug),
+    layout: {
+      "text-field": ["to-string", ["get", label.field]],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": label.size,
+      "text-max-width": 8,
+      // Overlapping labels are the common case at low zoom on a dense
+      // polygon layer (LandMark's community-lands dataset alone is ~330K
+      // features) -- letting MapLibre's own collision detection hide the
+      // overflow (the default, `false`) beats a wall of unreadable
+      // overlapping text.
+      "text-allow-overlap": false,
+    },
     paint: {
-      // The outline reuses the fill's own color (darkened via opacity 1
-      // vs the fill's own alpha) rather than the flat palette line color
-      // once a custom fill-color is set -- an outline that stays the old
-      // palette hue while the fill is a curator-chosen color looks like a
-      // mismatched two-tone layer, not "the same layer with a border."
-      "line-color": style?.["fill-color"] ?? paletteColor(colorIndex),
-      "line-width": 1.5,
+      "text-color": label.color,
+      "text-halo-color": label.haloColor,
+      "text-halo-width": label.haloWidth,
     },
   };
 }

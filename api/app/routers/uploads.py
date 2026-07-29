@@ -31,7 +31,7 @@ from app.registry.audit import write_audit_log
 from app.registry.slugs import slugify
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, UploadFile
 from pydantic import BaseModel
-from worker.common import s3_uri, upload_file
+from worker.common import is_macos_zip_artifact, s3_uri, upload_file
 
 router = APIRouter(prefix="/admin/uploads", tags=["uploads"])
 
@@ -94,7 +94,14 @@ async def create_upload(
     if inner_suffix is not None:
         try:
             with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                has_member = any(n.lower().endswith(inner_suffix) for n in zf.namelist())
+                # is_macos_zip_artifact excludes __MACOSX/._real_file stubs --
+                # without it, a zip containing ONLY macOS Finder's resource-
+                # fork placeholders (no real .shp/.kml at all) would pass this
+                # check, then fail confusingly deep in the worker instead of
+                # with a clear 400 right here.
+                has_member = any(
+                    n.lower().endswith(inner_suffix) and not is_macos_zip_artifact(n) for n in zf.namelist()
+                )
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail=f"'{file.filename}' is not a valid {ext} archive")
         if not has_member:

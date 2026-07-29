@@ -63,8 +63,14 @@ app.add_middleware(
     # Phase 1 was read-only (GET everywhere). Phase 3's admin surface
     # (auth/styles/governance routers below) needs PUT/POST from the same
     # dev origins, and OPTIONS for the browser's own CORS preflight on those
-    # -- HEAD costs nothing extra to allow alongside GET.
-    allow_methods=["GET", "HEAD", "POST", "PUT", "OPTIONS"],
+    # -- HEAD costs nothing extra to allow alongside GET. DELETE (governance's
+    # dataset-delete endpoint) was missing here entirely -- a non-"simple"
+    # method like DELETE always triggers a browser CORS preflight regardless
+    # of headers, and this list not listing it meant that preflight silently
+    # rejected the real request client-side (surfacing as a bare "Failed to
+    # fetch", never reaching this API at all -- there is no server-side log
+    # line for a request the browser refused to even send).
+    allow_methods=["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

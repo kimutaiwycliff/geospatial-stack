@@ -26,7 +26,7 @@ from celery import chain
 from psycopg2.extras import execute_values
 
 from worker.celery_app import celery_app
-from worker.common import ensure_bucket, get_duckdb_conn, get_pg_conn, get_s3_client, s3_uri, upload_file
+from worker.common import ensure_bucket, get_duckdb_conn, get_pg_conn, get_s3_client, is_macos_zip_artifact, s3_uri, upload_file
 from worker.seed_datasets import DATASET_META
 
 # DATASET_META moved to worker/seed_datasets.py (Phase 5, brief §17's
@@ -170,12 +170,64 @@ def _resolved_source(source_path: str):
     try:
         get_s3_client().download_file(bucket, key, local_path)
         with zipfile.ZipFile(local_path) as zf:
-            member = next((n for n in zf.namelist() if n.lower().endswith(inner_suffix)), None)
+            # is_macos_zip_artifact excludes __MACOSX/._real_file stubs -- a
+            # zip made via macOS Finder's "Compress" carries one of these
+            # alongside every real file, and `._muranga_bbox.shp` genuinely
+            # ends in `.shp` (a bare suffix match without this filter picked
+            # THAT empty resource-fork stub instead of the real shapefile,
+            # which GDAL then fails to open at all -- an actual production
+            # failure this filter fixes, not a hypothetical one).
+            member = next(
+                (n for n in zf.namelist() if n.lower().endswith(inner_suffix) and not is_macos_zip_artifact(n)),
+                None,
+            )
         if member is None:
             raise ValueError(f"no {inner_suffix} file found inside the uploaded {ext} archive")
         yield f"/vsizip/{local_path}/{member}"
     finally:
         os.remove(local_path)
+
+
+def _write_failure_report(slug: str, message: str) -> None:
+    """Populates registry.datasets.validation_report with a minimal failure
+    shape when ingest_task or curate_task itself blows up -- before this,
+    an early-pipeline crash (bad archive, unreadable CRS, a DuckDB OOM, a
+    Celery soft-time-limit, ...) left tier_status='raw'/validation_report=
+    NULL forever: the EXACT state the admin UI reads as "still validating"
+    (see UploadStatusPanel.tsx's `stillValidating`), so a curator had no
+    way to tell "processing" apart from "silently dead," and the UI polled
+    forever.
+
+    Deliberately reuses contract_test_task's own `validation_report` SHAPE
+    (not a new column/field) so the existing "Validation failed" card in
+    UploadStatusPanel renders this with zero frontend changes -- a curator
+    sees the same failed-validation UI whether contract_test_task caught a
+    structural problem, or the pipeline crashed outright before ever
+    reaching it. Every numeric/list field defaults to "nothing happened"
+    (0 / [] / {}) since none of contract_test_task's real checks ever ran.
+    """
+    pg = get_pg_conn()
+    with pg, pg.cursor() as cur:
+        cur.execute(
+            "UPDATE registry.datasets SET validation_report = %s WHERE slug = %s",
+            (
+                json.dumps(
+                    {
+                        "row_count": 0,
+                        "geometry_type": None,
+                        "null_or_empty_geometry_count": 0,
+                        "invalid_geometry_count": 0,
+                        "out_of_range_count": 0,
+                        "fields": {},
+                        "sample_features": [],
+                        "passed": False,
+                        "errors": [message],
+                    }
+                ),
+                slug,
+            ),
+        )
+    pg.close()
 
 
 @celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
@@ -185,7 +237,20 @@ def ingest_task(self, source_path: str, slug: str):
     the source CRS as-ingested (medallion "immutable, as-ingested" -- CRS
     normalization is curate_task's job, brief §5 step 2); the registry's
     `extent` bbox is still computed in true EPSG:4326 degrees, since that
-    column is documented as always-4326 regardless of tier."""
+    column is documented as always-4326 regardless of tier.
+
+    Wrapped in try/except -- see `_write_failure_report`'s docstring for
+    why: without it, any failure here left the admin UI polling forever
+    with no way to distinguish "still running" from "already dead."
+    """
+    try:
+        return _run_ingest(source_path, slug)
+    except Exception as exc:
+        _write_failure_report(slug, f"ingest failed: {exc}")
+        raise
+
+
+def _run_ingest(source_path: str, slug: str) -> dict:
     ensure_bucket()
     con = get_duckdb_conn()
 
@@ -242,7 +307,19 @@ def curate_task(self, prev_result, slug: str):
     reprojection to EPSG:4326 (brief §4 CRS discipline), ST_IsValid/
     ST_MakeValid, optional dedup, attribute cleanup, dest tier_status=curated.
     `prev_result` is unused -- accepted so this task can sit directly in a
-    Celery `chain()` after ingest_task."""
+    Celery `chain()` after ingest_task.
+
+    Wrapped in try/except -- same reasoning as ingest_task's identical
+    wrapper, see `_write_failure_report`'s docstring.
+    """
+    try:
+        return _run_curate(slug)
+    except Exception as exc:
+        _write_failure_report(slug, f"curate failed: {exc}")
+        raise
+
+
+def _run_curate(slug: str) -> dict:
     # .get(), not [slug] -- a self-service upload (brief §16) has no
     # DATASET_META entry at all; dedup is a Phase 0/1-only concept for
     # known-duplicated fixture/LandMark data (see the comment below), so

@@ -106,6 +106,26 @@ def s3_uri(key: str) -> str:
     return f"s3://{s3_config()['bucket']}/{key}"
 
 
+def is_macos_zip_artifact(name: str) -> bool:
+    """True for a zip member macOS Finder's built-in "Compress" adds
+    alongside every real file, never the curator's actual data: an
+    `__MACOSX/` sidecar directory full of AppleDouble resource-fork stubs
+    (`__MACOSX/._real_file.ext`, one per real file, zero real content).
+
+    Both `zipfile.namelist()` and GDAL's own `/vsizip/` auto-detection will
+    happily match one of these against a suffix check (`._muranga_bbox.shp`
+    genuinely ends in `.shp`) -- picking one instead of the real file is a
+    silent WRONG file, not an error, and it's common: any curator zipping a
+    Shapefile from macOS Finder rather than a CLI `zip` hits this by
+    default. Used by both app/routers/uploads.py (upload-time "does this
+    archive actually contain a usable file" check) and worker/tasks.py
+    (`_resolved_source`'s real member selection) so a macOS-zipped upload
+    is handled identically at both points instead of only fixing one.
+    """
+    basename = name.rsplit("/", 1)[-1]
+    return name.startswith("__MACOSX/") or basename.startswith("._")
+
+
 def upload_file(local_path: str, key: str, public_prefix: str | None = None):
     """Binary upload (PMTiles isn't tabular, so DuckDB's COPY can't write it
     directly) -- boto3 talks plain S3 API, so this works unchanged against

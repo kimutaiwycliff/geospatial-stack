@@ -14,10 +14,16 @@ import {
   publishMap,
   updateMap,
   UnauthorizedError,
+  DEFAULT_LAYER_HOVER,
+  DEFAULT_LAYER_POPUP,
   type AdminDataset,
   type AdminMapDetail,
+  type LayerHoverConfig,
+  type LayerPopupConfig,
+  type MapFilter,
   type MapLayer,
   type MapUpdatePatch,
+  type PopupStyle,
 } from "../../lib/adminApi";
 import { useAdminAuth } from "../../lib/adminAuth";
 import {
@@ -51,13 +57,24 @@ interface EditableFields {
   basemap: string;
   default_extent: { center: [number, number]; zoom: number } | null;
   controls_json: MapControlsConfig;
+  filters_json: MapFilter[];
+  min_zoom: string;
+  max_zoom: string;
 }
 
 function fieldsOf(map: AdminMapDetail): EditableFields {
   return {
     name: map.name,
     description: map.description ?? "",
-    layers_json: map.layers_json,
+    // popup/hover default to a fully-off config for any layer saved before
+    // this feature existed -- the backend's own Pydantic model defaults
+    // already guarantee this shape on every response, but this is belt-
+    // and-suspenders against a stale cached response.
+    layers_json: map.layers_json.map((layer) => ({
+      ...layer,
+      popup: layer.popup ?? DEFAULT_LAYER_POPUP,
+      hover: layer.hover ?? DEFAULT_LAYER_HOVER,
+    })),
     // Narrowed through asBasemapFlavor rather than trusted as-is -- a map
     // row saved before this picker existed already defaults to "light" (the
     // migration's own column default), but this guards against any
@@ -71,6 +88,14 @@ function fieldsOf(map: AdminMapDetail): EditableFields {
     // but a missing entry per-control below still needs SOME value to
     // seed the Switch/Select from).
     controls_json: { ...DEFAULT_MAP_CONTROLS, ...map.controls_json },
+    filters_json: map.filters_json ?? [],
+    // Kept as strings (like the extent's own centerLng/centerLat/zoom
+    // inputs below) rather than `number | null` so an in-progress "" (the
+    // curator cleared the field, meaning "no constraint") has somewhere to
+    // live that isn't `NaN` -- converted to a real number or `null` only at
+    // Save time (see buildPatch).
+    min_zoom: map.min_zoom != null ? String(map.min_zoom) : "",
+    max_zoom: map.max_zoom != null ? String(map.max_zoom) : "",
   };
 }
 
@@ -80,6 +105,12 @@ function fieldsOf(map: AdminMapDetail): EditableFields {
  * compared by JSON content, not reference, since this form always
  * constructs a fresh array/object on every edit.
  */
+/** "" (cleared field) -> `null` (no constraint); anything else -> its
+ * numeric value. Shared by min_zoom/max_zoom's diff below. */
+function zoomPatchValue(value: string): number | null {
+  return value.trim() === "" ? null : Number(value);
+}
+
 function buildPatch(loaded: EditableFields, current: EditableFields): MapUpdatePatch | null {
   const patch: MapUpdatePatch = {};
   if (loaded.name !== current.name) patch.name = current.name;
@@ -88,6 +119,9 @@ function buildPatch(loaded: EditableFields, current: EditableFields): MapUpdateP
   if (JSON.stringify(loaded.layers_json) !== JSON.stringify(current.layers_json)) patch.layers_json = current.layers_json;
   if (JSON.stringify(loaded.default_extent) !== JSON.stringify(current.default_extent)) patch.default_extent = current.default_extent;
   if (JSON.stringify(loaded.controls_json) !== JSON.stringify(current.controls_json)) patch.controls_json = current.controls_json;
+  if (JSON.stringify(loaded.filters_json) !== JSON.stringify(current.filters_json)) patch.filters_json = current.filters_json;
+  if (loaded.min_zoom !== current.min_zoom) patch.min_zoom = zoomPatchValue(current.min_zoom);
+  if (loaded.max_zoom !== current.max_zoom) patch.max_zoom = zoomPatchValue(current.max_zoom);
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
@@ -174,7 +208,16 @@ export function MapEditor() {
       const exists = prev.layers_json.some((l) => l.dataset_slug === datasetSlug);
       const layers_json = exists
         ? prev.layers_json.filter((l) => l.dataset_slug !== datasetSlug)
-        : [...prev.layers_json, { dataset_slug: datasetSlug, visible: true, style_ref: "published" as const }];
+        : [
+            ...prev.layers_json,
+            {
+              dataset_slug: datasetSlug,
+              visible: true,
+              style_ref: "published" as const,
+              popup: DEFAULT_LAYER_POPUP,
+              hover: DEFAULT_LAYER_HOVER,
+            },
+          ];
       return { ...prev, layers_json };
     });
   }
@@ -195,6 +238,73 @@ export function MapEditor() {
       const current = prev.controls_json[id] ?? DEFAULT_MAP_CONTROLS[id];
       return { ...prev, controls_json: { ...prev.controls_json, [id]: { ...current, ...patch } } };
     });
+  }
+
+  /** Shared updater for one layer's `popup` or `hover` sub-object -- both
+   * follow the exact same "patch this one layer's config" shape, just
+   * against a different key. */
+  function updateLayerConfig(datasetSlug: string, key: "popup" | "hover", patch: Partial<LayerPopupConfig | LayerHoverConfig>) {
+    setValues((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        layers_json: prev.layers_json.map((l) =>
+          l.dataset_slug === datasetSlug ? { ...l, [key]: { ...l[key], ...patch } } : l,
+        ),
+      };
+    });
+  }
+
+  function toggleLayerConfigField(datasetSlug: string, key: "popup" | "hover", field: string) {
+    setValues((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        layers_json: prev.layers_json.map((l) => {
+          if (l.dataset_slug !== datasetSlug) return l;
+          const current = l[key].fields;
+          const fields = current.includes(field) ? current.filter((f) => f !== field) : [...current, field];
+          return { ...l, [key]: { ...l[key], fields } };
+        }),
+      };
+    });
+  }
+
+  function updateLayerPopupStyle(datasetSlug: string, patch: Partial<PopupStyle>) {
+    setValues((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        layers_json: prev.layers_json.map((l) =>
+          l.dataset_slug === datasetSlug ? { ...l, popup: { ...l.popup, style: { ...l.popup.style, ...patch } } } : l,
+        ),
+      };
+    });
+  }
+
+  function addFilter() {
+    setValues((prev) => {
+      if (!prev) return prev;
+      const next: MapFilter = {
+        id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `filter-${Date.now()}`,
+        label: "",
+        dataset_slug: prev.layers_json[0]?.dataset_slug ?? "",
+        field: "",
+        options: [],
+      };
+      return { ...prev, filters_json: [...prev.filters_json, next] };
+    });
+  }
+
+  function updateFilter(id: string, patch: Partial<MapFilter>) {
+    setValues((prev) => {
+      if (!prev) return prev;
+      return { ...prev, filters_json: prev.filters_json.map((f) => (f.id === id ? { ...f, ...patch } : f)) };
+    });
+  }
+
+  function removeFilter(id: string) {
+    setValues((prev) => (prev ? { ...prev, filters_json: prev.filters_json.filter((f) => f.id !== id) } : prev));
   }
 
   async function handleSave() {
@@ -377,6 +487,43 @@ export function MapEditor() {
           )}
         </div>
 
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-foreground">Zoom limits</span>
+          <p className="text-xs text-muted-foreground">
+            Optional -- leave either blank for no constraint on how far a visitor can zoom in/out.
+          </p>
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="min-zoom" className="text-xs text-muted-foreground">
+                Min zoom
+              </Label>
+              <Input
+                id="min-zoom"
+                type="number"
+                step="any"
+                placeholder="none"
+                value={values.min_zoom}
+                onChange={(e) => setValues((prev) => (prev ? { ...prev, min_zoom: e.target.value } : prev))}
+                className="w-24"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="max-zoom" className="text-xs text-muted-foreground">
+                Max zoom
+              </Label>
+              <Input
+                id="max-zoom"
+                type="number"
+                step="any"
+                placeholder="none"
+                value={values.max_zoom}
+                onChange={(e) => setValues((prev) => (prev ? { ...prev, max_zoom: e.target.value } : prev))}
+                className="w-24"
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-foreground">Layers</span>
@@ -391,32 +538,217 @@ export function MapEditor() {
             {visibleDatasets.length === 0 && <li className="p-3 text-sm text-muted-foreground">No datasets to reference.</li>}
             {visibleDatasets.map((dataset) => {
               const layer = layerFor(dataset.slug);
+              const fieldOptions = Object.keys(dataset.schema_json ?? {}).filter((f) => f !== "bbox");
               return (
-                <li
-                  key={dataset.slug}
-                  className="flex items-center justify-between gap-3 p-3 text-sm transition-colors duration-150 hover:bg-muted/50"
-                >
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={layer != null}
-                      onCheckedChange={() => toggleLayerIncluded(dataset.slug)}
-                      aria-label={`Include ${dataset.name} in this map`}
-                    />
-                    <span className="text-foreground">{dataset.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {dataset.slug} &middot; {dataset.tier_status}
-                    </span>
-                  </div>
-                  {layer && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <li key={dataset.slug} className="flex flex-col gap-2 p-3 text-sm transition-colors duration-150 hover:bg-muted/50">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
                       <Switch
-                        checked={layer.visible}
-                        onCheckedChange={() => toggleLayerVisible(dataset.slug)}
-                        aria-label={`Visible by default: ${dataset.name}`}
+                        checked={layer != null}
+                        onCheckedChange={() => toggleLayerIncluded(dataset.slug)}
+                        aria-label={`Include ${dataset.name} in this map`}
                       />
-                      Visible by default
+                      <span className="text-foreground">{dataset.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {dataset.slug} &middot; {dataset.tier_status}
+                      </span>
+                    </div>
+                    {layer && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Switch
+                          checked={layer.visible}
+                          onCheckedChange={() => toggleLayerVisible(dataset.slug)}
+                          aria-label={`Visible by default: ${dataset.name}`}
+                        />
+                        Visible by default
+                      </div>
+                    )}
+                  </div>
+
+                  {layer && (
+                    <div className="ml-8 flex flex-col gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                      {/* Popup (brief follow-up: "customize what field show up on popups ... clicking features") */}
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={layer.popup.enabled}
+                            onCheckedChange={(enabled) => updateLayerConfig(dataset.slug, "popup", { enabled })}
+                            aria-label={`Enable click popup for ${dataset.name}`}
+                          />
+                          <span className="text-xs font-medium text-foreground">Click popup</span>
+                        </div>
+                        {layer.popup.enabled && (
+                          <div className="flex flex-col gap-2 pl-7">
+                            {fieldOptions.length === 0 ? (
+                              <span className="text-xs text-muted-foreground">No field list available for this dataset.</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                {fieldOptions.map((field) => (
+                                  <label key={field} className="flex items-center gap-1.5 text-xs text-foreground">
+                                    <input
+                                      type="checkbox"
+                                      checked={layer.popup.fields.includes(field)}
+                                      onChange={() => toggleLayerConfigField(dataset.slug, "popup", field)}
+                                      className="size-3.5 accent-primary"
+                                    />
+                                    {field}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className="text-xs text-muted-foreground">Look:</span>
+                              <input
+                                type="color"
+                                title="Background color"
+                                value={layer.popup.style.background_color}
+                                onChange={(e) => updateLayerPopupStyle(dataset.slug, { background_color: e.target.value })}
+                                className="h-6 w-9 cursor-pointer rounded border border-input"
+                              />
+                              <input
+                                type="color"
+                                title="Text color"
+                                value={layer.popup.style.text_color}
+                                onChange={(e) => updateLayerPopupStyle(dataset.slug, { text_color: e.target.value })}
+                                className="h-6 w-9 cursor-pointer rounded border border-input"
+                              />
+                              <input
+                                type="color"
+                                title="Border color"
+                                value={layer.popup.style.border_color}
+                                onChange={(e) => updateLayerPopupStyle(dataset.slug, { border_color: e.target.value })}
+                                className="h-6 w-9 cursor-pointer rounded border border-input"
+                              />
+                              <input
+                                type="number"
+                                min={0}
+                                max={20}
+                                title="Corner radius (px)"
+                                value={layer.popup.style.border_radius}
+                                onChange={(e) => updateLayerPopupStyle(dataset.slug, { border_radius: Number(e.target.value) })}
+                                className="h-6 w-14 rounded border border-input px-1 text-xs"
+                              />
+                              <input
+                                type="number"
+                                min={8}
+                                max={24}
+                                title="Font size (px)"
+                                value={layer.popup.style.font_size}
+                                onChange={(e) => updateLayerPopupStyle(dataset.slug, { font_size: Number(e.target.value) })}
+                                className="h-6 w-14 rounded border border-input px-1 text-xs"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Hover tooltip (brief follow-up: "even hovering per dataset") */}
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={layer.hover.enabled}
+                            onCheckedChange={(enabled) => updateLayerConfig(dataset.slug, "hover", { enabled })}
+                            aria-label={`Enable hover tooltip for ${dataset.name}`}
+                          />
+                          <span className="text-xs font-medium text-foreground">Hover tooltip</span>
+                        </div>
+                        {layer.hover.enabled && (
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 pl-7">
+                            {fieldOptions.length === 0 ? (
+                              <span className="text-xs text-muted-foreground">No field list available for this dataset.</span>
+                            ) : (
+                              fieldOptions.map((field) => (
+                                <label key={field} className="flex items-center gap-1.5 text-xs text-foreground">
+                                  <input
+                                    type="checkbox"
+                                    checked={layer.hover.fields.includes(field)}
+                                    onChange={() => toggleLayerConfigField(dataset.slug, "hover", field)}
+                                    className="size-3.5 accent-primary"
+                                  />
+                                  {field}
+                                </label>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">Filters</span>
+            <Button type="button" variant="outline" size="sm" onClick={addFilter}>
+              Add filter
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Each filter is a dropdown a visitor uses to show only features where a chosen field equals one of the
+            values you list here (brief follow-up: "filters ... pointed to specific fields," not just the
+            hardcoded country search).
+          </p>
+          <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
+            {values.filters_json.length === 0 && <li className="p-3 text-sm text-muted-foreground">No filters configured.</li>}
+            {values.filters_json.map((filter) => {
+              const filterDataset = datasets.find((d) => d.slug === filter.dataset_slug);
+              const filterFieldOptions = Object.keys(filterDataset?.schema_json ?? {}).filter((f) => f !== "bbox");
+              return (
+                <li key={filter.id} className="flex flex-col gap-2 p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      placeholder="Label (e.g. Category)"
+                      value={filter.label}
+                      onChange={(e) => updateFilter(filter.id, { label: e.target.value })}
+                      className="w-44"
+                    />
+                    <Select
+                      value={filter.dataset_slug || undefined}
+                      onValueChange={(dataset_slug) => updateFilter(filter.id, { dataset_slug, field: "" })}
+                    >
+                      <SelectTrigger className="w-52" aria-label="Filter dataset">
+                        <SelectValue placeholder="Choose a dataset…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {values.layers_json.map((l) => (
+                          <SelectItem key={l.dataset_slug} value={l.dataset_slug}>
+                            {l.dataset_slug}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={filter.field || undefined} onValueChange={(field) => updateFilter(filter.id, { field })}>
+                      <SelectTrigger className="w-40" aria-label="Filter field">
+                        <SelectValue placeholder="Choose a field…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filterFieldOptions.map((field) => (
+                          <SelectItem key={field} value={field}>
+                            {field}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => removeFilter(filter.id)}>
+                      Remove
+                    </Button>
+                  </div>
+                  <Input
+                    placeholder="Allowed values, comma-separated (e.g. Community Forest, Reserve, Park)"
+                    value={filter.options.join(", ")}
+                    onChange={(e) =>
+                      updateFilter(filter.id, {
+                        options: e.target.value
+                          .split(",")
+                          .map((v) => v.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                  />
                 </li>
               );
             })}

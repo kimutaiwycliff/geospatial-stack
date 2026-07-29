@@ -210,6 +210,50 @@ export interface UploadApproveResult {
   status: "publish_requested";
 }
 
+/** "How they should look" (brief follow-up) -- single-value popup/hover
+ * styling, mirrored 1:1 from the backend's `PopupStyle` model. */
+export interface PopupStyle {
+  background_color: string;
+  text_color: string;
+  border_color: string;
+  border_radius: number;
+  font_size: number;
+}
+
+/** Click-to-inspect popup config for one layer within a Map (brief
+ * follow-up: "customize what field show up on popups ... and I should
+ * also choose how they should look"). `fields` is empty by default --
+ * enabling this with no fields chosen yet is a real (if useless) state,
+ * not an error. */
+export interface LayerPopupConfig {
+  enabled: boolean;
+  fields: string[];
+  style: PopupStyle;
+}
+
+/** Hover-tooltip config -- no `style` of its own; reuses the same layer's
+ * `popup.style` (see maps.py's `LayerHoverConfig` docstring for why). */
+export interface LayerHoverConfig {
+  enabled: boolean;
+  fields: string[];
+}
+
+/** Mirrors the backend Pydantic models' own field defaults exactly --
+ * seeds for a newly-included layer (MapEditor's `toggleLayerIncluded`)
+ * and the fallback when an older layers_json entry predates this feature. */
+export const DEFAULT_POPUP_STYLE: PopupStyle = {
+  background_color: "#ffffff",
+  text_color: "#111111",
+  border_color: "#e5e7eb",
+  border_radius: 8,
+  font_size: 13,
+};
+// enabled: true -- see maps.py's LayerPopupConfig docstring for why this
+// one control defaults ON (preserves the old unconditional name-only
+// popup) while hover below defaults off (a genuinely new capability).
+export const DEFAULT_LAYER_POPUP: LayerPopupConfig = { enabled: true, fields: [], style: DEFAULT_POPUP_STYLE };
+export const DEFAULT_LAYER_HOVER: LayerHoverConfig = { enabled: false, fields: [] };
+
 /**
  * One layer reference inside a Map's `layers_json` (brief §16: "layers_json
  * is [{dataset_slug, visible, style_ref: 'published'}]"). `style_ref` only
@@ -222,6 +266,22 @@ export interface MapLayer {
   dataset_slug: string;
   visible: boolean;
   style_ref: "published";
+  popup: LayerPopupConfig;
+  hover: LayerHoverConfig;
+}
+
+/** One admin-defined filter widget (brief follow-up: "filters can be
+ * customized ... pointed to specific fields," replacing the old
+ * hardcoded country-only filter). `options` is a plain, admin-typed list
+ * of allowed values for `field` on `dataset_slug` -- see maps.py's
+ * `MapFilter` docstring for why there's no live "distinct values from the
+ * tiles" introspection. */
+export interface MapFilter {
+  id: string;
+  label: string;
+  dataset_slug: string;
+  field: string;
+  options: string[];
 }
 
 /** Matches urlState.ts's `MapUrlState.view` shape exactly (brief note) --
@@ -250,9 +310,14 @@ export interface PublicMapConfig {
   layers_json: MapLayer[];
   basemap: string;
   default_extent: MapExtent | null;
-  filters_json: Record<string, unknown> | null;
+  filters_json: MapFilter[] | null;
   legend_json: Record<string, unknown> | null;
   controls_json: MapControlsConfig;
+  /** Null = no constraint, matching MapLibre's own Map constructor
+   * behavior when minZoom/maxZoom are omitted (brief follow-up:
+   * "optionally choose minimum and maximum zoom per map"). */
+  min_zoom: number | null;
+  max_zoom: number | null;
 }
 
 /** One row of `GET /admin/maps` -- the authoring UI's list view, every
@@ -275,11 +340,13 @@ export interface AdminMapDetail extends AdminMapSummary {
   layers_json: MapLayer[];
   basemap: string;
   default_extent: MapExtent | null;
-  filters_json: Record<string, unknown> | null;
+  filters_json: MapFilter[] | null;
   legend_json: Record<string, unknown> | null;
   controls_json: MapControlsConfig;
   created_by: string | null;
   version: number;
+  min_zoom: number | null;
+  max_zoom: number | null;
 }
 
 /** Body for `POST /admin/maps` -- `name` is the only required field; the
@@ -298,9 +365,11 @@ export interface MapUpdatePatch {
   layers_json?: MapLayer[];
   basemap?: string;
   default_extent?: MapExtent | null;
-  filters_json?: Record<string, unknown> | null;
+  filters_json?: MapFilter[] | null;
   legend_json?: Record<string, unknown> | null;
   controls_json?: MapControlsConfig;
+  min_zoom?: number | null;
+  max_zoom?: number | null;
 }
 
 /** One row of `GET /admin/audit-log`. `details` is intentionally left as a

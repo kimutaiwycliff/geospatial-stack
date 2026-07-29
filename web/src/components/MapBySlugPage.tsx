@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Map as MapLibreMap, Popup, type MapMouseEvent } from "maplibre-gl";
+import { Map as MapLibreMap, Popup, type FilterSpecification, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchDatasets, isMappable, type Dataset } from "../lib/api";
-import { fetchMap, fetchPublishedStyles, type PublicMapConfig } from "../lib/adminApi";
-import { applyBasemapFlavor, asBasemapFlavor, buildBaseStyle, type BasemapFlavor } from "../lib/basemapStyle";
+import {
+  DEFAULT_LAYER_HOVER,
+  DEFAULT_LAYER_POPUP,
+  fetchMap,
+  fetchPublishedStyles,
+  type LayerHoverConfig,
+  type PopupStyle,
+  type PublicMapConfig,
+} from "../lib/adminApi";
+import { asBasemapFlavor, buildBaseStyle } from "../lib/basemapStyle";
 import { applyMapControls } from "../lib/mapControls";
-import { BasemapSwitcher } from "./BasemapSwitcher";
 import {
   buildFillLayer,
   buildLabelLayer,
@@ -23,6 +32,41 @@ import {
 } from "../lib/mapSources";
 import { WORLD_VIEW } from "../lib/regionCentroids";
 import { ThemeToggle } from "./ThemeToggle";
+
+/** Minimal HTML-escaping for feature property values interpolated into a
+ * Popup's `setHTML` -- those values come from whatever a curator uploaded
+ * (self-service uploads accept arbitrary attribute data), and this popup
+ * renders to the PUBLIC, unauthenticated map, so an unescaped `<script>`/
+ * `<img onerror=...>` in a dataset's own attribute data would execute for
+ * every visitor. */
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
+}
+
+/** Shared by both the click popup and the hover tooltip -- the same
+ * "picked fields, or the old name-only fallback" content, styled with the
+ * layer's `popup.style` either way (hover has no style of its own, see
+ * maps.py's `LayerHoverConfig` docstring). `fields` empty means "nobody
+ * configured this yet" -- falls back to the single `name` property (or
+ * "Feature") this app showed unconditionally before per-layer popups
+ * existed, so an un-configured Map doesn't go from "shows something" to
+ * "shows nothing" the moment this feature shipped. */
+function buildFeatureHtml(properties: Record<string, unknown>, fields: string[], style: PopupStyle, footer?: string): string {
+  const rows =
+    fields.length > 0
+      ? fields
+          .map((field) => `<div><strong>${escapeHtml(field)}:</strong> ${escapeHtml(String(properties[field] ?? ""))}</div>`)
+          .join("")
+      : `<div><strong>${escapeHtml(String(properties.name ?? "Feature"))}</strong></div>`;
+  const footerHtml = footer
+    ? `<div style="opacity:0.7;font-size:${Math.max(style.font_size - 2, 10)}px;margin-top:4px;">${escapeHtml(footer)}</div>`
+    : "";
+  return (
+    `<div style="background:${style.background_color};color:${style.text_color};` +
+    `border:1px solid ${style.border_color};border-radius:${style.border_radius}px;` +
+    `font-size:${style.font_size}px;padding:8px 10px;">${rows}${footerHtml}</div>`
+  );
+}
 
 /**
  * Public, unauthenticated render of ONE published Map (brief §16: "the map
@@ -46,10 +90,10 @@ export function MapBySlugPage() {
   const [config, setConfig] = useState<PublicMapConfig | null>(null);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // Seeded from this Map's saved `basemap` column once `config` loads (see
-  // the effect below) -- a viewer can still override it live via
-  // BasemapSwitcher without that changing what's actually saved server-side.
-  const [basemapFlavor, setBasemapFlavor] = useState<BasemapFlavor>("light");
+  // One selected value per configured filter (brief follow-up: "filters
+  // can be customized ... pointed to specific fields"), keyed by filter id;
+  // an absent/empty entry means "no restriction from this filter."
+  const [activeFilterValues, setActiveFilterValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!slug) return;
@@ -62,15 +106,6 @@ export function MapBySlugPage() {
   }, [slug]);
 
   useEffect(() => {
-    if (config) setBasemapFlavor(asBasemapFlavor(config.basemap));
-  }, [config]);
-
-  function handleBasemapChange(flavor: BasemapFlavor) {
-    setBasemapFlavor(flavor);
-    if (mapRef.current) applyBasemapFlavor(mapRef.current, flavor);
-  }
-
-  useEffect(() => {
     if (!config || datasets.length === 0 || !containerRef.current || mapRef.current) return;
 
     // Resolve the map's fixed layer list against the full public registry
@@ -79,23 +114,32 @@ export function MapBySlugPage() {
     // get_published_map), so the only extra check needed here is
     // `isMappable` -- a layer entry referencing a tabular (non-geometry)
     // dataset can't get a source/layer pair at all.
+    // `popup`/`hover` normalized here -- a Map's layers_json saved before
+    // this feature existed has neither key in its stored JSON at all (the
+    // backend returns whatever's actually in the jsonb column, not
+    // re-validated through the Pydantic model's defaults), so accessing
+    // `layer.popup.enabled` directly on an old row would throw.
     const entries = config.layers_json
-      .map((layer) => ({ layer, dataset: datasets.find((d) => d.slug === layer.dataset_slug) }))
+      .map((layer) => ({
+        layer: { ...layer, popup: layer.popup ?? DEFAULT_LAYER_POPUP, hover: layer.hover ?? DEFAULT_LAYER_HOVER },
+        dataset: datasets.find((d) => d.slug === layer.dataset_slug),
+      }))
       .filter((entry): entry is { layer: (typeof config.layers_json)[number]; dataset: Dataset } => entry.dataset != null && isMappable(entry.dataset));
 
     const view = config.default_extent ?? WORLD_VIEW;
-    // Read `config.basemap` directly here (not the `basemapFlavor` state
-    // variable) -- that state is seeded from `config` by a separate effect
-    // and updating it schedules a re-render rather than taking effect
-    // synchronously, which would risk this map's very first frame building
-    // with the stale "light" default for a Map actually configured to some
-    // other flavor. Reading straight off `config` sidesteps that race
-    // entirely: this effect already depends on `config` being non-null.
     const map = new MapLibreMap({
       container: containerRef.current,
+      // Read `config.basemap` directly (not React state) -- this is the
+      // map's very first frame, and there's no risk of a stale value here
+      // since this effect already depends on `config` being non-null.
       style: buildBaseStyle(asBasemapFlavor(config.basemap)),
       center: view.center,
       zoom: view.zoom,
+      // Undefined (not set at all) when unconfigured -- MapLibre's own
+      // "no constraint" behavior (brief follow-up: "optionally choose
+      // minimum and maximum zoom per map").
+      minZoom: config.min_zoom ?? undefined,
+      maxZoom: config.max_zoom ?? undefined,
       // MapLibre silently adds its OWN default AttributionControl unless
       // told not to -- suppressed here so applyMapControls (below) is the
       // ONLY thing that ever adds one, driven by this Map's saved
@@ -104,7 +148,11 @@ export function MapBySlugPage() {
       attributionControl: false,
     });
     mapRef.current = map;
-    applyMapControls(map, config.controls_json);
+    // The basemap switcher is now just another control (brief follow-up:
+    // "just another map control that can be toggled and placed wherever
+    // you want") -- `initialBasemapFlavor` seeds its dropdown to match the
+    // flavor this map was actually built with above.
+    applyMapControls(map, config.controls_json, { initialBasemapFlavor: asBasemapFlavor(config.basemap) });
 
     // Published styles (brief §6.3) -- see MapView.tsx's identical fetch
     // for why this is a separate best-effort call rather than baked into
@@ -133,25 +181,58 @@ export function MapBySlugPage() {
 
       const fillLayerIds = entries.map(({ dataset }) => fillLayerId(dataset.slug));
 
-      // Same minimal click-for-popup MapView's own click handler does --
-      // no side panel here (this page has nowhere to put one, and a Map's
-      // whole point is a fixed, curated view, not a full exploration UI).
+      // Click-for-popup, now rendering whichever fields (brief follow-up:
+      // "customize what field show up on popups ... clicking features")
+      // and look (`popup.style`) the admin configured for THAT layer,
+      // falling back to the old name-only content when unconfigured (see
+      // buildFeatureHtml's doc comment).
       map.on("click", (e: MapMouseEvent) => {
         if (fillLayerIds.length === 0) return;
         const feature = map.queryRenderedFeatures(e.point, { layers: fillLayerIds })[0];
         if (!feature?.layer) return;
         const featureSlug = datasetSlugFromLayerId(feature.layer.id);
-        const datasetName = entries.find((entry) => entry.dataset.slug === featureSlug)?.dataset.name ?? featureSlug;
-        const label = (feature.properties?.name as string | undefined) ?? "Feature";
+        const entry = entries.find((en) => en.dataset.slug === featureSlug);
+        if (!entry?.layer.popup.enabled) return;
+        const datasetName = entry.dataset.name;
         new Popup({ closeButton: true })
           .setLngLat(e.lngLat)
-          .setHTML(`<div class="text-sm"><strong>${label}</strong><br/><span class="text-muted-foreground">${datasetName}</span></div>`)
+          .setHTML(buildFeatureHtml(feature.properties ?? {}, entry.layer.popup.fields, entry.layer.popup.style, datasetName))
           .addTo(map);
       });
 
+      // Hover tooltip (brief follow-up: "even hovering per dataset") --
+      // a genuinely new capability (hover previously only changed the
+      // cursor), so this only appears for a layer whose admin explicitly
+      // enabled it with at least one field chosen; reuses the layer's
+      // `popup.style` rather than a separate style config (see
+      // buildFeatureHtml's doc comment on why).
+      let hoverPopup: Popup | null = null;
       map.on("mousemove", (e: MapMouseEvent) => {
-        const hovering = fillLayerIds.length > 0 && map.queryRenderedFeatures(e.point, { layers: fillLayerIds }).length > 0;
-        map.getCanvas().style.cursor = hovering ? "pointer" : "";
+        const feature = fillLayerIds.length > 0 ? map.queryRenderedFeatures(e.point, { layers: fillLayerIds })[0] : undefined;
+        map.getCanvas().style.cursor = feature ? "pointer" : "";
+
+        const featureSlug = feature?.layer ? datasetSlugFromLayerId(feature.layer.id) : null;
+        const entry = featureSlug ? entries.find((en) => en.dataset.slug === featureSlug) : undefined;
+        const hover: LayerHoverConfig | undefined = entry?.layer.hover;
+
+        if (!feature || !entry || !hover?.enabled || hover.fields.length === 0) {
+          hoverPopup?.remove();
+          hoverPopup = null;
+          return;
+        }
+        hoverPopup ??= new Popup({ closeButton: false, closeOnClick: false });
+        hoverPopup
+          .setLngLat(e.lngLat)
+          .setHTML(buildFeatureHtml(feature.properties ?? {}, hover.fields, entry.layer.popup.style))
+          .addTo(map);
+      });
+      // `map.on("mouseleave", ...)` requires a layer id (MapLibre only
+      // supports layer-scoped mouseleave, not a whole-map one) -- this
+      // needs "cursor left the canvas entirely" regardless of layer, so it
+      // listens on the canvas DOM element directly instead.
+      map.getCanvas().addEventListener("mouseleave", () => {
+        hoverPopup?.remove();
+        hoverPopup = null;
       });
     });
 
@@ -160,6 +241,38 @@ export function MapBySlugPage() {
       mapRef.current = null;
     };
   }, [config, datasets]);
+
+  // Filter-application effect: reacts to a visitor's dropdown choice
+  // (brief follow-up: "filters can be customized and dynamically changed
+  // ... pointed to specific fields," replacing the old hardcoded country
+  // filter). Guarded per-layer via `getLayer` (not a separate "ready"
+  // flag) -- harmless no-op before the layers-added effect above has run,
+  // since the only way this effect's dependency (`activeFilterValues`)
+  // changes at all is a visitor interacting with a dropdown that only
+  // exists once `config` (and therefore the map) already loaded.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !config?.filters_json) return;
+    const byDataset = new Map<string, FilterSpecification[]>();
+    for (const filter of config.filters_json) {
+      const value = activeFilterValues[filter.id];
+      if (!value) continue;
+      const clause: FilterSpecification = ["==", ["get", filter.field], value];
+      const existing = byDataset.get(filter.dataset_slug) ?? [];
+      byDataset.set(filter.dataset_slug, [...existing, clause]);
+    }
+    for (const layer of config.layers_json) {
+      const clauses = byDataset.get(layer.dataset_slug);
+      // Cast: MapLibre's FilterSpecification union is exact enough that
+      // spreading an array of already-valid `["==", ...]` clauses into an
+      // `["all", ...]` tuple doesn't infer cleanly, even though the result
+      // is a well-formed filter expression at runtime.
+      const expression = (clauses && clauses.length > 0 ? ["all", ...clauses] : null) as FilterSpecification | null;
+      for (const layerId of [fillLayerId(layer.dataset_slug), outlineLayerId(layer.dataset_slug), labelLayerId(layer.dataset_slug)]) {
+        if (map.getLayer(layerId)) map.setFilter(layerId, expression);
+      }
+    }
+  }, [activeFilterValues, config]);
 
   if (error) {
     return (
@@ -186,7 +299,12 @@ export function MapBySlugPage() {
       {/* Info card in the corner -- a great fit for shadcn `Card` (brief):
           it's a genuinely floating, self-contained piece of chrome over the
           map, not a full-height pane, so Card's rounded/ring/padding model
-          reads naturally here (unlike SidePanel's edge-to-edge drawer). */}
+          reads naturally here (unlike SidePanel's edge-to-edge drawer).
+          Filters (when configured) render as a CardContent section right
+          below the header instead of their own separately-positioned card
+          -- the header's height varies with whether a description is set,
+          which would make a second absolutely-positioned card either
+          overlap or leave an awkward gap. */}
       {config && (
         // `w-72` (not just `max-w-sm`) is load-bearing: Card is `absolute`
         // with no explicit width, so it shrink-to-fits its content -- and
@@ -199,10 +317,36 @@ export function MapBySlugPage() {
             <CardTitle className="text-sm">{config.name}</CardTitle>
             {config.description && <CardDescription className="text-xs">{config.description}</CardDescription>}
           </CardHeader>
+          {config.filters_json && config.filters_json.length > 0 && (
+            <CardContent className="flex flex-col gap-2 px-3">
+              {config.filters_json.map((filter) => (
+                <div key={filter.id} className="flex flex-col gap-1">
+                  <Label className="text-xs text-muted-foreground">{filter.label || filter.field}</Label>
+                  <Select
+                    value={activeFilterValues[filter.id] ?? "__all__"}
+                    onValueChange={(value) =>
+                      setActiveFilterValues((prev) => ({ ...prev, [filter.id]: value === "__all__" ? "" : value }))
+                    }
+                  >
+                    <SelectTrigger className="h-8 text-xs" aria-label={filter.label || filter.field}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All</SelectItem>
+                      {filter.options.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </CardContent>
+          )}
         </Card>
       )}
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
-        <BasemapSwitcher value={basemapFlavor} onChange={handleBasemapChange} className="w-32 bg-card/95 shadow" />
+      <div className="absolute right-3 top-3 z-10">
         <ThemeToggle />
       </div>
       <div ref={containerRef} className="h-full w-full" />

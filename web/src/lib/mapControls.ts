@@ -9,7 +9,9 @@ import {
   type IControl,
   type Map as MapLibreMap,
 } from "maplibre-gl";
+import type { BasemapFlavor } from "./basemapStyle";
 import { createAtmosphereControl } from "./controls/atmosphereControl";
+import { createBasemapSwitcherControl } from "./controls/basemapSwitcherControl";
 import { createBookmarkControl } from "./controls/bookmarkControl";
 import { createGraticuleControl } from "./controls/graticuleControl";
 import { createLegendControl } from "./controls/legendControl";
@@ -50,6 +52,7 @@ export const MAP_CONTROL_IDS = [
   "atmosphere",
   "bookmark",
   "legend",
+  "basemap-switcher",
 ] as const;
 export type MapControlId = (typeof MAP_CONTROL_IDS)[number];
 
@@ -86,6 +89,7 @@ export const MAP_CONTROL_LABELS: Record<MapControlId, string> = {
   atmosphere: "Atmospheric effects",
   bookmark: "Bookmarks (saved views)",
   legend: "Legend",
+  "basemap-switcher": "Basemap switcher",
 };
 
 export const CONTROL_POSITIONS: ControlPosition[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
@@ -114,6 +118,11 @@ export const DEFAULT_MAP_CONTROLS: Record<MapControlId, MapControlConfig> = {
   atmosphere: { enabled: false, position: "top-right" },
   bookmark: { enabled: false, position: "top-left" },
   legend: { enabled: false, position: "bottom-left" },
+  // Enabled by default -- unlike every other hand-built control above,
+  // this one was ALREADY always-on for every published Map before it
+  // joined controls_json (MapBySlugPage.tsx used to hard-render it),
+  // so defaulting it off would be a silent regression for existing Maps.
+  "basemap-switcher": { enabled: true, position: "top-right" },
 };
 
 /** One constructor per control id -- a plain function (not `new` inline in
@@ -143,6 +152,11 @@ const CONTROL_FACTORIES: Record<MapControlId, () => IControl> = {
   atmosphere: () => createAtmosphereControl(),
   bookmark: () => createBookmarkControl(),
   legend: () => createLegendControl(),
+  // Default (no-arg) fallback -- applyMapControls special-cases this one
+  // id to pass through the Map's actual configured basemap flavor instead,
+  // so this entry only matters for type-completeness / any future caller
+  // that invokes CONTROL_FACTORIES directly.
+  "basemap-switcher": () => createBasemapSwitcherControl(),
 };
 
 /**
@@ -153,13 +167,24 @@ const CONTROL_FACTORIES: Record<MapControlId, () => IControl> = {
  * `attributionControl: false` to the `Map` constructor) will end up with
  * two attribution controls if `attribution` is enabled here -- see
  * MapBySlugPage.tsx for why that flag is required alongside this call.
+ *
+ * `initialBasemapFlavor` is threaded through ONLY to the basemap-switcher
+ * control -- it's the one control here that needs to know something about
+ * the Map beyond its own enabled/position config (what flavor the map was
+ * actually built with), so it's special-cased rather than widening every
+ * other factory's signature for a need only this one has.
  */
-export function applyMapControls(map: MapLibreMap, config: MapControlsConfig | null | undefined): void {
+export function applyMapControls(
+  map: MapLibreMap,
+  config: MapControlsConfig | null | undefined,
+  opts?: { initialBasemapFlavor?: BasemapFlavor },
+): void {
   if (!config) return;
   for (const id of MAP_CONTROL_IDS) {
     const entry = config[id];
     if (entry?.enabled) {
-      map.addControl(CONTROL_FACTORIES[id](), entry.position);
+      const control = id === "basemap-switcher" ? createBasemapSwitcherControl(opts?.initialBasemapFlavor) : CONTROL_FACTORIES[id]();
+      map.addControl(control, entry.position);
     }
   }
 }

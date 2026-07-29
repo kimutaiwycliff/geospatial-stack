@@ -28,6 +28,48 @@ from pydantic import BaseModel
 router = APIRouter(tags=["maps"])
 
 
+class PopupStyle(BaseModel):
+    """"How they should look" (brief follow-up) -- single-value styling for
+    a layer's popup/hover tooltip, same "one value applied uniformly"
+    philosophy as StylePanel's fill/line/label controls (no per-field
+    theming, no rich text)."""
+
+    background_color: str = "#ffffff"
+    text_color: str = "#111111"
+    border_color: str = "#e5e7eb"
+    border_radius: int = 8
+    font_size: int = 13
+
+
+class LayerPopupConfig(BaseModel):
+    """Click-to-inspect popup config for one layer within a Map -- which
+    attributes show (`fields`, in order) and how the popup looks.
+
+    `enabled` defaults to True (not False like `LayerHoverConfig` below) --
+    every Map already showed SOME click popup unconditionally before this
+    config existed (a hardcoded `name`-or-"Feature" one, see
+    MapBySlugPage.tsx's `buildFeatureHtml`), so this has to default to "on"
+    or every pre-existing Map would silently go from "shows a popup" to
+    "shows nothing" the moment this feature shipped. `fields` empty is what
+    preserves that exact old behavior (falls back to `name`) -- an admin
+    who wants MORE than that picks fields; one who wants NONE explicitly
+    disables it."""
+
+    enabled: bool = True
+    fields: list[str] = []
+    style: PopupStyle = PopupStyle()
+
+
+class LayerHoverConfig(BaseModel):
+    """Hover tooltip config -- deliberately no `style` of its own (reuses
+    the layer's `popup.style`, see MapBySlugPage.tsx): a hover tooltip and
+    a click popup for the SAME layer looking different would read as two
+    unrelated pieces of chrome, not "more detail on click.\""""
+
+    enabled: bool = False
+    fields: list[str] = []
+
+
 class MapLayer(BaseModel):
     dataset_slug: str
     visible: bool = True
@@ -36,6 +78,8 @@ class MapLayer(BaseModel):
     # (not hardcoded server-side) so a per-map style override has
     # somewhere to live later without another migration.
     style_ref: Literal["published"] = "published"
+    popup: LayerPopupConfig = LayerPopupConfig()
+    hover: LayerHoverConfig = LayerHoverConfig()
 
 
 # The 7 controls genuinely native to MapLibre GL JS, plus 9 more hand-built
@@ -53,13 +97,29 @@ class MapLayer(BaseModel):
 _KNOWN_CONTROLS = {
     "navigation", "fullscreen", "geolocate", "globe", "scale", "attribution", "logo",
     "search", "measure", "minimap", "gridlines",
-    "compass", "spinning-globe", "atmosphere", "bookmark", "legend",
+    "compass", "spinning-globe", "atmosphere", "bookmark", "legend", "basemap-switcher",
 }
 
 
 class MapControlConfig(BaseModel):
     enabled: bool = False
     position: Literal["top-left", "top-right", "bottom-left", "bottom-right"] = "top-right"
+
+
+class MapFilter(BaseModel):
+    """One admin-defined filter widget (brief follow-up: "filters ...
+    pointed to specific fields," replacing the old hardcoded country-only
+    filter). Points at one dataset + attribute; `options` is a plain,
+    admin-typed list of allowed values -- there's no live "distinct values
+    from the tiles" introspection here (Martin/PMTiles don't expose that
+    cheaply), so the admin authoring this Map is the one who knows what
+    values that field actually takes."""
+
+    id: str
+    label: str
+    dataset_slug: str
+    field: str
+    options: list[str] = []
 
 
 class MapCreate(BaseModel):
@@ -73,9 +133,13 @@ class MapUpdate(BaseModel):
     layers_json: list[MapLayer] | None = None
     basemap: str | None = None
     default_extent: dict | None = None
-    filters_json: dict | None = None
+    filters_json: list[MapFilter] | None = None
     legend_json: dict | None = None
     controls_json: dict[str, MapControlConfig] | None = None
+    # Nullable, no default -- unset means "no zoom constraint" (brief
+    # follow-up: "optionally choose minimum and maximum zoom per map").
+    min_zoom: float | None = None
+    max_zoom: float | None = None
 
 
 def _row_to_map(row: dict) -> dict:
@@ -113,7 +177,7 @@ def get_published_map(slug: str):
             cur.execute(
                 """
                 SELECT slug, name, description, layers_json, basemap, default_extent, filters_json, legend_json,
-                       controls_json
+                       controls_json, min_zoom, max_zoom
                 FROM registry.maps WHERE slug = %s AND status = 'published'
                 """,
                 (slug,),
@@ -203,6 +267,13 @@ def update_map(slug: str, update: MapUpdate = Body(...), admin: dict = Depends(r
         raise HTTPException(status_code=400, detail="no fields to update")
 
     layer_slugs = [layer["dataset_slug"] for layer in fields.get("layers_json", [])]
+    # Filters point at a dataset the SAME way layers_json does -- validated
+    # against the same registry.datasets existence check just below (not
+    # necessarily one of this Map's own included layers: a filter could
+    # reasonably target a dataset the map doesn't render a fill/outline for
+    # at all, e.g. filtering by a tabular indicator joined client-side --
+    # out of scope today, but nothing here should preclude it later).
+    filter_dataset_slugs = [f["dataset_slug"] for f in fields.get("filters_json", [])]
     if "controls_json" in fields:
         unknown_controls = set(fields["controls_json"]) - _KNOWN_CONTROLS
         if unknown_controls:
@@ -233,6 +304,13 @@ def update_map(slug: str, update: MapUpdate = Body(...), admin: dict = Depends(r
                 unknown = set(layer_slugs) - known
                 if unknown:
                     raise HTTPException(status_code=400, detail=f"unknown dataset slug(s) in layers_json: {sorted(unknown)}")
+
+            if filter_dataset_slugs:
+                cur.execute("SELECT slug FROM registry.datasets WHERE slug = ANY(%s)", (filter_dataset_slugs,))
+                known = {r["slug"] for r in cur.fetchall()}
+                unknown = set(filter_dataset_slugs) - known
+                if unknown:
+                    raise HTTPException(status_code=400, detail=f"unknown dataset slug(s) in filters_json: {sorted(unknown)}")
 
             cur.execute(
                 f"UPDATE registry.maps SET {set_clause} WHERE slug = %(slug)s RETURNING *",

@@ -21,6 +21,7 @@ import {
 import { useAdminAuth } from "../../lib/adminAuth";
 import {
   CONTROL_POSITIONS,
+  CONTROLS_WITHOUT_POSITION,
   DEFAULT_MAP_CONTROLS,
   MAP_CONTROL_IDS,
   MAP_CONTROL_LABELS,
@@ -399,13 +400,14 @@ export function MapEditor() {
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium text-foreground">Map controls</span>
           <p className="text-xs text-muted-foreground">
-            The 7 controls native to MapLibre GL JS -- everything else in GeoLibre's own "Map controls" menu
-            (search, directions, weather, route animation, ...) depends on an external service or a separate plugin
-            package and isn't offered here.
+            MapLibre's own controls, plus search/measure/minimap/gridlines (hand-built, no API key required) --
+            everything else in GeoLibre's own "Map controls" menu (directions, weather, route animation, ...)
+            depends on an external service or a separate plugin package and isn't offered here.
           </p>
           <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
             {MAP_CONTROL_IDS.map((id) => {
               const entry = values.controls_json[id] ?? DEFAULT_MAP_CONTROLS[id];
+              const positionable = !CONTROLS_WITHOUT_POSITION.has(id);
               return (
                 <li key={id} className="flex items-center justify-between gap-3 p-3 text-sm transition-colors duration-150 hover:bg-muted/50">
                   <div className="flex items-center gap-2">
@@ -416,6 +418,7 @@ export function MapEditor() {
                     />
                     <span className="text-foreground">{MAP_CONTROL_LABELS[id]}</span>
                   </div>
+                  {positionable ? (
                   <Select
                     value={entry.position}
                     onValueChange={(position) => updateControl(id, { position: position as typeof entry.position })}
@@ -432,6 +435,9 @@ export function MapEditor() {
                       ))}
                     </SelectContent>
                   </Select>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">no position (whole-map overlay)</span>
+                  )}
                 </li>
               );
             })}

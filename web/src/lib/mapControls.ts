@@ -9,20 +9,46 @@ import {
   type IControl,
   type Map as MapLibreMap,
 } from "maplibre-gl";
+import { createGraticuleControl } from "./controls/graticuleControl";
+import { createMeasureControl } from "./controls/measureControl";
+import { createMinimapControl } from "./controls/minimapControl";
+import { createSearchControl } from "./controls/searchControl";
 
 /**
- * The 7 controls that are genuinely native to MapLibre GL JS itself --
- * researched against GeoLibre (brief §14, the project's own reference
- * MapLibre implementation), whose "Map controls" menu lists ~24 items.
- * Everything past these 7 (Search/geocoding, Directions, Weather, Route
- * Animation, Flight Simulator, Measure, Minimap, ...) is either a separate
- * plugin package or depends on an external service (routing/geocoding
- * APIs) -- deliberately out of scope. These 7 are exactly the ones
- * MapLibre's own `map.addControl(control, position)` already supports
- * per-corner positioning for, natively, with zero extra dependencies.
+ * The 7 controls genuinely native to MapLibre GL JS itself, PLUS 4 more
+ * (search/measure/minimap/gridlines) that are real GeoLibre menu items but
+ * NOT MapLibre built-ins -- researched against GeoLibre's own source
+ * (brief §14): those 4 are hand-rolled here (src/lib/controls/*), each a
+ * small, self-contained `IControl`, since no single popular npm package
+ * covers this exact set the way GeoLibre's own proprietary
+ * `maplibre-gl-components` bundle does. Everything else in GeoLibre's menu
+ * (Directions, Reverse Geocode, Weather, Route Animation, Flight
+ * Simulator, Sun, Atmospheric Effects, Spinning Globe, Colorbar, Legend,
+ * HTML, Bookmark) is still out of scope -- each is either a genuinely
+ * separate multi-day feature or depends on an external paid/keyed service,
+ * not a config toggle (see the research this session did for the reasoning
+ * behind that line).
  */
-export const MAP_CONTROL_IDS = ["navigation", "fullscreen", "geolocate", "globe", "scale", "attribution", "logo"] as const;
+export const MAP_CONTROL_IDS = [
+  "navigation",
+  "fullscreen",
+  "geolocate",
+  "globe",
+  "scale",
+  "attribution",
+  "logo",
+  "search",
+  "measure",
+  "minimap",
+  "gridlines",
+] as const;
 export type MapControlId = (typeof MAP_CONTROL_IDS)[number];
+
+/** "gridlines" has no on-map corner widget (see graticuleControl.ts) --
+ * MapEditor.tsx uses this to skip rendering a meaningless position picker
+ * for it, the same way GeoLibre's own menu has no position submenu for its
+ * non-corner items. */
+export const CONTROLS_WITHOUT_POSITION = new Set<MapControlId>(["gridlines"]);
 
 export type ControlPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
@@ -41,6 +67,10 @@ export const MAP_CONTROL_LABELS: Record<MapControlId, string> = {
   scale: "Scale bar",
   attribution: "Attribution",
   logo: "MapLibre logo",
+  search: "Search (place lookup)",
+  measure: "Measure distance / area",
+  minimap: "Minimap",
+  gridlines: "Gridlines",
 };
 
 export const CONTROL_POSITIONS: ControlPosition[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
@@ -58,6 +88,12 @@ export const DEFAULT_MAP_CONTROLS: Record<MapControlId, MapControlConfig> = {
   scale: { enabled: false, position: "bottom-left" },
   attribution: { enabled: true, position: "bottom-right" },
   logo: { enabled: false, position: "bottom-left" },
+  search: { enabled: false, position: "top-left" },
+  measure: { enabled: false, position: "top-left" },
+  minimap: { enabled: false, position: "bottom-right" },
+  // Position is stored for schema uniformity but ignored at render time --
+  // see CONTROLS_WITHOUT_POSITION above.
+  gridlines: { enabled: false, position: "top-right" },
 };
 
 /** One constructor per control id -- a plain function (not `new` inline in
@@ -73,6 +109,10 @@ const CONTROL_FACTORIES: Record<MapControlId, () => IControl> = {
   scale: () => new ScaleControl(),
   attribution: () => new AttributionControl({ compact: true }),
   logo: () => new LogoControl(),
+  search: () => createSearchControl(),
+  measure: () => createMeasureControl(),
+  minimap: () => createMinimapControl(),
+  gridlines: () => createGraticuleControl(),
 };
 
 /**

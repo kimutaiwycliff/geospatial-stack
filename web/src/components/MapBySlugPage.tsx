@@ -138,7 +138,16 @@ export function MapBySlugPage() {
   }
 
   return (
-    <div className="relative h-screen w-screen animate-in fade-in duration-300">
+    <div className="relative h-screen w-screen animate-in fade-in duration-300 map-by-slug-page">
+      {/* MapLibre's own top-left control corner (Geolocate/Search/Measure,
+          whichever this Map has enabled -- see mapControls.ts) starts at
+          roughly the same offset as the info card below, so without this
+          the two silently overlap (found by actually looking at a Map with
+          a top-left control enabled, not by inspecting the JSX). Scoped to
+          this page's own class -- MapView.tsx's main explorer map has no
+          such title card, so its top-left controls shouldn't be pushed
+          down for no reason. */}
+      <style>{`.map-by-slug-page .maplibregl-ctrl-top-left { margin-top: 4.5rem; }`}</style>
       {/* Info card in the corner -- a great fit for shadcn `Card` (brief):
           it's a genuinely floating, self-contained piece of chrome over the
           map, not a full-height pane, so Card's rounded/ring/padding model

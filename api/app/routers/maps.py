@@ -38,16 +38,21 @@ class MapLayer(BaseModel):
     style_ref: Literal["published"] = "published"
 
 
-# The 7 controls that are genuinely native to MapLibre GL JS (NavigationControl/
-# FullscreenControl/GeolocateControl/GlobeControl/ScaleControl/
-# AttributionControl/LogoControl) -- researched against GeoLibre (brief §14),
-# whose own "Map controls" menu lists ~24 items, but everything beyond these
-# 7 is a separate plugin package or an external service (geocoding, routing,
-# weather tiles, deck.gl overlays), not a MapLibre built-in, and out of
-# scope here. Frozen as a real allowlist (not just a TypedDict) so a typo'd
-# or made-up control id in a PUT body 422s immediately instead of silently
-# being stored and then ignored by the frontend's renderer.
-_KNOWN_CONTROLS = {"navigation", "fullscreen", "geolocate", "globe", "scale", "attribution", "logo"}
+# The 7 controls genuinely native to MapLibre GL JS, plus 4 more
+# (search/measure/minimap/gridlines) hand-built client-side with no API key
+# or heavy dependency (see web/src/lib/controls/*) -- researched against
+# GeoLibre (brief §14), whose own "Map controls" menu lists ~24 items.
+# Everything past these 11 (Directions, Reverse Geocode, Weather, Route
+# Animation, Flight Simulator, Sun, Atmospheric Effects, Spinning Globe,
+# Colorbar, Legend, HTML, Bookmark) is either a separately-scoped feature or
+# depends on an external paid/keyed service -- out of scope. Frozen as a
+# real allowlist (not just a TypedDict) so a typo'd or made-up control id in
+# a PUT body 400s immediately instead of silently being stored and then
+# ignored by the frontend's renderer.
+_KNOWN_CONTROLS = {
+    "navigation", "fullscreen", "geolocate", "globe", "scale", "attribution", "logo",
+    "search", "measure", "minimap", "gridlines",
+}
 
 
 class MapControlConfig(BaseModel):

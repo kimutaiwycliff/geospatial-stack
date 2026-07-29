@@ -168,6 +168,19 @@ export function adminAuditLogUrl(opts?: { datasetSlug?: string; limit?: number }
   return `${API_BASE_URL}/admin/audit-log${query ? `?${query}` : ""}`;
 }
 
+/** Distinct values for one column of a published dataset -- backs Map
+ * authoring's filter editor (brief follow-up: "the allowable ones I
+ * should just be choosing from unique fields"). */
+export function adminDatasetFieldValuesUrl(slug: string, field: string): string {
+  return `${API_BASE_URL}/admin/datasets/${encodeURIComponent(slug)}/field-values?field=${encodeURIComponent(field)}`;
+}
+
+/** Changes an already-published dataset's serve mode (brief follow-up:
+ * "I can later change how I would want a dataset should be served"). */
+export function adminDatasetServeModeUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/datasets/${encodeURIComponent(slug)}/serve-mode`;
+}
+
 /** Every dataset's current draft style row (admin-only preview of unpublished edits). */
 export function adminDraftStylesUrl(): string {
   return `${API_BASE_URL}/admin/styles/draft`;

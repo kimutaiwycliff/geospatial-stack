@@ -232,3 +232,109 @@ def list_audit_log(dataset_slug: str | None = None, limit: int = 100, admin: dic
     finally:
         conn.close()
     return rows
+
+
+@router.get("/datasets/{slug}/field-values")
+def list_distinct_field_values(slug: str, field: str, admin: dict = Depends(require_admin)):
+    """Distinct values for one column of a PUBLISHED dataset -- backs Map
+    authoring's filter editor (brief follow-up: "the allowable ones I
+    should just be choosing from unique fields," not hand-typing them).
+
+    Requires `tier_status = 'published'`: a filter only makes sense on data
+    actually rendered on a map, and only a published dataset has a
+    `published.<table>` to query values from at all -- raw/curated tiers
+    live as GeoParquet in object storage, not queryable SQL tables.
+
+    `field` can't be parameterized (it's a column name, not a value) --
+    validated against the dataset's own `schema_json` FIRST, so only a
+    column that genuinely exists on this table's own registry record can
+    ever reach the f-string below. Same "column names come from a
+    curator-controlled schema, not public input" trust boundary
+    worker/tasks.py's own load_postgis_task/contract_test_task already
+    rely on for their own column-name interpolation.
+    """
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT tier_status, schema_json FROM registry.datasets WHERE slug = %s", (slug,))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="dataset not found")
+            if row["tier_status"] != "published":
+                raise HTTPException(status_code=400, detail="dataset is not published yet")
+
+            schema = row["schema_json"] or {}
+            if field == "bbox" or field not in schema:
+                raise HTTPException(status_code=400, detail=f"'{field}' is not a real column on this dataset")
+
+            table = slug.replace("-", "_")
+            # LIMIT 500: a genuinely high-cardinality column (an ID, a free-
+            # text note) isn't a sensible filter field anyway -- this caps
+            # the query and gives the admin a clear signal (a truncated,
+            # clearly-not-a-category list) rather than a slow unbounded scan.
+            cur.execute(
+                f'SELECT DISTINCT "{field}"::text AS value FROM published."{table}" '
+                f'WHERE "{field}" IS NOT NULL ORDER BY 1 LIMIT 500'
+            )
+            values = [r["value"] for r in cur.fetchall()]
+    finally:
+        conn.close()
+    return {"values": values}
+
+
+class ServeModeUpdate(BaseModel):
+    serve_mode: Literal["pmtiles", "martin"]
+
+
+@router.post("/datasets/{slug}/serve-mode")
+def update_serve_mode(slug: str, body: ServeModeUpdate, admin: dict = Depends(require_admin)):
+    """Changes an ALREADY-PUBLISHED dataset's serve mode (brief follow-up:
+    "I can later change how I would want a dataset should be served
+    whether by pmtiles or martin tiles") -- previously a one-time choice
+    made at initial publish, with no way back.
+
+    Switching TO martin is immediate: tiles/martin/config.yaml's
+    auto_publish already discovers every table in `published` regardless
+    of this column's value (see that file's own comment), so `martin`
+    tiles for this dataset are already being served -- this just tells the
+    frontend (mapSources.ts's buildVectorSource) to actually request them
+    that way instead of from a PMTiles archive.
+
+    Switching TO pmtiles needs a real build: if no `.pmtiles` archive
+    exists yet (true for any dataset originally published with
+    serve_mode='martin', which never ran build_pmtiles_task), one has to
+    be built before the frontend can be pointed at it. `serve_mode` is
+    updated immediately either way, matching the same "optimistic, tiles
+    catch up asynchronously" pattern the original publish flow already
+    uses (load_postgis_task sets serve_mode before build_pmtiles_task, its
+    OWN following chain step, has even started).
+    """
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT tier_status FROM registry.datasets WHERE slug = %s", (slug,))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="dataset not found")
+            if row["tier_status"] != "published":
+                raise HTTPException(status_code=400, detail="dataset is not published yet")
+
+            cur.execute(
+                "UPDATE registry.datasets SET serve_mode = %s WHERE slug = %s",
+                (body.serve_mode, slug),
+            )
+            write_audit_log(cur, admin, "dataset.serve_mode_changed", slug, {"serve_mode": body.serve_mode})
+    finally:
+        conn.close()
+
+    if body.serve_mode == "pmtiles":
+        from worker.tasks import build_pmtiles_task
+
+        # `None` for `prev_result` -- this dispatch has no chain predecessor
+        # to auto-fill it, same reasoning as run_publish_pipeline's own
+        # standalone use of this task (worker/tasks.py). A harmless re-build
+        # if a `.pmtiles` archive already exists (e.g. flipping back and
+        # forth) -- upload_file's overwrite is idempotent.
+        build_pmtiles_task.delay(None, slug)
+
+    return {"slug": slug, "serve_mode": body.serve_mode}

@@ -1,6 +1,8 @@
 import {
   adminAuditLogUrl,
+  adminDatasetFieldValuesUrl,
   adminDatasetGovernanceUrl,
+  adminDatasetServeModeUrl,
   adminDatasetUrl,
   adminDatasetsUrl,
   adminDraftStylesUrl,
@@ -520,6 +522,27 @@ export function updateGovernance(
  * undo short of a backup restore. */
 export function deleteDataset(token: string, slug: string): Promise<{ slug: string; deleted: true }> {
   return adminFetch(adminDatasetUrl(slug), token, { method: "DELETE" });
+}
+
+/** Distinct values for one column of a published dataset -- backs Map
+ * authoring's filter editor (brief follow-up: "the allowable ones I
+ * should just be choosing from unique fields," not hand-typing them). */
+export function fetchFieldValues(token: string, slug: string, field: string): Promise<string[]> {
+  return adminFetch<{ values: string[] }>(adminDatasetFieldValuesUrl(slug, field), token).then((r) => r.values);
+}
+
+/** Changes an already-published dataset's serve mode (brief follow-up:
+ * "I can later change how I would want a dataset should be served whether
+ * by pmtiles or martin tiles"). Switching to martin takes effect
+ * immediately (Martin already auto-discovers every published table);
+ * switching to pmtiles dispatches a tile build in the background -- see
+ * governance.py's `update_serve_mode` for the full contract. */
+export function updateServeMode(token: string, slug: string, serveMode: "pmtiles" | "martin"): Promise<{ slug: string; serve_mode: string }> {
+  return adminFetch(adminDatasetServeModeUrl(slug), token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ serve_mode: serveMode }),
+  });
 }
 
 /** Every dataset's current draft style -- callers filter this down to one

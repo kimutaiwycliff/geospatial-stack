@@ -5,7 +5,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableFilterSelect } from "./SearchableFilterSelect";
 import { fetchDatasets, isMappable, type Dataset } from "../lib/api";
 import {
   DEFAULT_LAYER_HOVER,
@@ -351,24 +351,12 @@ export function MapBySlugPage() {
               {config.filters_json.map((filter) => (
                 <div key={filter.id} className="flex flex-col gap-1">
                   <Label className="text-xs text-muted-foreground">{filter.label || filter.field}</Label>
-                  <Select
-                    value={activeFilterValues[filter.id] ?? "__all__"}
-                    onValueChange={(value) =>
-                      setActiveFilterValues((prev) => ({ ...prev, [filter.id]: value === "__all__" ? "" : value }))
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs" aria-label={filter.label || filter.field}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All</SelectItem>
-                      {filter.options.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableFilterSelect
+                    label={filter.label || filter.field}
+                    options={filter.options}
+                    value={activeFilterValues[filter.id] ?? ""}
+                    onChange={(value) => setActiveFilterValues((prev) => ({ ...prev, [filter.id]: value }))}
+                  />
                 </div>
               ))}
             </CardContent>

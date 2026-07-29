@@ -13,6 +13,7 @@ import {
   deleteMap,
   fetchAdminDatasets,
   fetchAdminMap,
+  fetchFieldValues,
   publishMap,
   unpublishMap,
   updateMap,
@@ -199,6 +200,8 @@ export function MapEditor() {
   const [publishing, setPublishing] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [fieldValueOptions, setFieldValueOptions] = useState<Record<string, string[]>>({});
+  const [fieldValuesLoading, setFieldValuesLoading] = useState<Record<string, boolean>>({});
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   const load = useCallback(() => {
@@ -385,6 +388,45 @@ export function MapEditor() {
 
   function removeFilter(id: string) {
     setValues((prev) => (prev ? { ...prev, filters_json: prev.filters_json.filter((f) => f.id !== id) } : prev));
+    setFieldValueOptions((prev) => {
+      const { [id]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }
+
+  /** Loads the real distinct values for a filter's chosen dataset+field
+   * (brief follow-up: "the allowable ones I should just be choosing from
+   * unique fields," not hand-typing them) -- keyed by filter id since two
+   * filters can point at the same dataset+field independently. */
+  async function loadFieldValues(filterId: string, datasetSlug: string, field: string) {
+    if (!datasetSlug || !field) return;
+    setFieldValuesLoading((prev) => ({ ...prev, [filterId]: true }));
+    try {
+      const fieldValues = await fetchFieldValues(authToken, datasetSlug, field);
+      setFieldValueOptions((prev) => ({ ...prev, [filterId]: fieldValues }));
+      // Dropping any previously-chosen options this field no longer has --
+      // most relevant right after switching field/dataset on an existing
+      // filter, where the old `options` list belonged to a different column.
+      updateFilter(filterId, { options: [] });
+    } catch {
+      toast.error("Could not load this field's values.");
+    } finally {
+      setFieldValuesLoading((prev) => ({ ...prev, [filterId]: false }));
+    }
+  }
+
+  function toggleFilterOption(filterId: string, value: string) {
+    setValues((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        filters_json: prev.filters_json.map((f) => {
+          if (f.id !== filterId) return f;
+          const options = f.options.includes(value) ? f.options.filter((v) => v !== value) : [...f.options, value];
+          return { ...f, options };
+        }),
+      };
+    });
   }
 
   function updateGridlines(patch: Partial<GridlinesConfig>) {
@@ -983,7 +1025,10 @@ export function MapEditor() {
                     />
                     <Select
                       value={filter.dataset_slug || undefined}
-                      onValueChange={(dataset_slug) => updateFilter(filter.id, { dataset_slug, field: "" })}
+                      onValueChange={(dataset_slug) => {
+                        updateFilter(filter.id, { dataset_slug, field: "" });
+                        setFieldValueOptions((prev) => ({ ...prev, [filter.id]: [] }));
+                      }}
                     >
                       <SelectTrigger className="w-52" aria-label="Filter dataset">
                         <SelectValue placeholder="Choose a dataset…" />
@@ -996,7 +1041,13 @@ export function MapEditor() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Select value={filter.field || undefined} onValueChange={(field) => updateFilter(filter.id, { field })}>
+                    <Select
+                      value={filter.field || undefined}
+                      onValueChange={(field) => {
+                        updateFilter(filter.id, { field });
+                        void loadFieldValues(filter.id, filter.dataset_slug, field);
+                      }}
+                    >
                       <SelectTrigger className="w-40" aria-label="Filter field">
                         <SelectValue placeholder="Choose a field…" />
                       </SelectTrigger>
@@ -1012,18 +1063,47 @@ export function MapEditor() {
                       Remove
                     </Button>
                   </div>
-                  <Input
-                    placeholder="Allowed values, comma-separated (e.g. Community Forest, Reserve, Park)"
-                    value={filter.options.join(", ")}
-                    onChange={(e) =>
-                      updateFilter(filter.id, {
-                        options: e.target.value
-                          .split(",")
-                          .map((v) => v.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                  />
+                  <div className="flex flex-col gap-1.5 pl-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        Allowed values (pulled straight from the data, not typed):
+                      </span>
+                      {filter.field && (
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                          onClick={() => loadFieldValues(filter.id, filter.dataset_slug, filter.field)}
+                        >
+                          {fieldValueOptions[filter.id] ? "Refresh" : "Load values"}
+                        </Button>
+                      )}
+                    </div>
+                    {fieldValuesLoading[filter.id] ? (
+                      <span className="text-xs text-muted-foreground">Loading values…</span>
+                    ) : !filter.field ? (
+                      <span className="text-xs text-muted-foreground">Choose a field above first.</span>
+                    ) : fieldValueOptions[filter.id] === undefined ? (
+                      <span className="text-xs text-muted-foreground">Not loaded yet -- click "Load values."</span>
+                    ) : fieldValueOptions[filter.id]!.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">No values found for this field.</span>
+                    ) : (
+                      <div className="flex max-h-32 flex-wrap gap-x-3 gap-y-1 overflow-y-auto rounded-md border border-border/60 p-2">
+                        {fieldValueOptions[filter.id]?.map((value) => (
+                          <label key={value} className="flex items-center gap-1.5 text-xs text-foreground">
+                            <input
+                              type="checkbox"
+                              checked={filter.options.includes(value)}
+                              onChange={() => toggleFilterOption(filter.id, value)}
+                              className="size-3.5 accent-primary"
+                            />
+                            {value}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </li>
               );
             })}

@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   approveUpload,
   fetchUploadStatus,
+  updateServeMode,
   UnauthorizedError,
   type AdminDataset,
   type UploadStatus,
@@ -112,6 +113,7 @@ export function UploadStatusPanel({
   // whether it will be from the pmtiles or martin dynamic tiles"), served
   // live from Postgres and auto-discovered by tiles/martin/config.yaml.
   const [serveMode, setServeMode] = useState<"pmtiles" | "martin">("pmtiles");
+  const [changingServeMode, setChangingServeMode] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
 
   // Re-seed on a genuinely different dataset selection, mirroring
@@ -200,6 +202,34 @@ export function UploadStatusPanel({
     }
   }
 
+  /** Brief follow-up: "I can later change how I would want a dataset
+   * should be served whether by pmtiles or martin tiles" -- unlike the
+   * one-time approval choice above, this can be flipped any time after
+   * publishing. See governance.py's `update_serve_mode` for what actually
+   * happens on each side (martin is immediate; pmtiles dispatches a
+   * background tile build). */
+  async function handleChangeServeMode(nextServeMode: "pmtiles" | "martin") {
+    setChangingServeMode(true);
+    try {
+      await updateServeMode(token, dataset.slug, nextServeMode);
+      setStatus((prev) => ({ ...prev, serve_mode: nextServeMode }));
+      onStatusChange({ serve_mode: nextServeMode });
+      toast.success(
+        nextServeMode === "martin"
+          ? "Now serving via Martin (live from Postgres)."
+          : "Switching to PMTiles -- building the static archive now.",
+      );
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        logout();
+        return;
+      }
+      toast.error(err instanceof Error ? err.message : "Could not change serve mode.");
+    } finally {
+      setChangingServeMode(false);
+    }
+  }
+
   const report = status.validation_report;
   const columns = sampleColumns(report);
   const canApprove = report?.passed === true && status.tier_status !== "published";
@@ -213,11 +243,33 @@ export function UploadStatusPanel({
       )}
 
       {status.tier_status === "published" && (
-        <Alert className={`animate-in fade-in duration-200 ${SUCCESS_ALERT_CLASS}`}>
-          <AlertDescription className={SUCCESS_TEXT_CLASS}>
-            Published{status.serve_mode ? ` (serve_mode: ${status.serve_mode})` : ""}.
-          </AlertDescription>
-        </Alert>
+        <>
+          <Alert className={`animate-in fade-in duration-200 ${SUCCESS_ALERT_CLASS}`}>
+            <AlertDescription className={SUCCESS_TEXT_CLASS}>
+              Published{status.serve_mode ? ` (serve_mode: ${status.serve_mode})` : ""}.
+            </AlertDescription>
+          </Alert>
+          {(status.serve_mode === "pmtiles" || status.serve_mode === "martin") && (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="change-serve-mode" className="text-xs text-muted-foreground">
+                Serve via
+              </Label>
+              <Select
+                value={status.serve_mode}
+                onValueChange={(value) => handleChangeServeMode(value as "pmtiles" | "martin")}
+                disabled={changingServeMode}
+              >
+                <SelectTrigger id="change-serve-mode" className="w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pmtiles">PMTiles (static, built once)</SelectItem>
+                  <SelectItem value="martin">Martin (dynamic, live from Postgres)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </>
       )}
 
       {awaitingPublish && status.tier_status !== "published" && (

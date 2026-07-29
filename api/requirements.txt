@@ -1,12 +1,16 @@
-# Phase 0 vertical slice (brief §17) -- just the two endpoints in app/main.py.
-# Left unpinned: brief says versions were locked 2026-07-27 but "latest stable"
-# is fine here, and pinning exact patch versions now would just mean editing
-# this file again the moment a security release lands. Revisit with hard pins
-# once there's a CI pipeline that can catch a breaking upstream change (§11/§17).
-fastapi
-uvicorn[standard]
-psycopg2-binary
-pydantic
+# Phase 0 left these unpinned deliberately ("revisit once there's a CI
+# pipeline that can catch a breaking upstream change"). Production-readiness
+# audit finding: CI now exists (.github/workflows/ci.yml) but the pins were
+# never actually added -- the condition that justified deferring this no
+# longer holds, and every `docker compose build`/CI run installs "whatever
+# is currently newest" with no lockfile, so today's green run and next
+# week's could silently differ. Pinned to what was actually installed and
+# tested as of this pass (`pip show <pkg>` against this repo's own .venv) --
+# bump deliberately (and re-test) rather than letting these drift again.
+fastapi==0.140.13
+uvicorn[standard]==0.51.0
+psycopg2-binary==2.9.12
+pydantic==2.13.4
 
 # Observability (brief §12). prometheus-fastapi-instrumentator over hand-rolled
 # middleware -- it gives per-route request count/latency histograms (what §12
@@ -21,6 +25,10 @@ sentry-sdk[fastapi,celery]
 # file's docstring for why this is a few lines against Redis directly
 # rather than an off-the-shelf Celery Prometheus package.
 prometheus-client
+# Rate limiting (security audit finding: /auth/login had no throttling at
+# all) -- Redis-backed via app/rate_limit.py, reusing the REDIS_URL every
+# other service in this stack already depends on.
+slowapi==0.1.9
 
 # Phase 1 (brief §1.2): this image is shared by `api`, `worker`, and `flower`
 # (docker-compose.yml overrides CMD per service), so the worker's own deps
@@ -53,9 +61,11 @@ python-multipart==0.0.12
 # spreadsheets, not GIS files -- DuckDB's ST_Read can't touch these, so the
 # tabular ingest path reads them with pandas + these two engines
 # (openpyxl for .xlsx, xlrd for the legacy .xls format one file uses).
-pandas
-openpyxl
-xlrd
+# Pinned alongside fastapi/uvicorn/psycopg2-binary/pydantic above -- same
+# audit finding, same reasoning.
+pandas==3.0.5
+openpyxl==3.1.5
+xlrd==2.0.2
 
 # Test-only deps. Kept in the same file (rather than a requirements-dev.txt)
 # because this is a two-endpoint Phase 0 slice -- a separate dev-deps file

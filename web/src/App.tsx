@@ -1,11 +1,14 @@
+import * as Sentry from "@sentry/react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AdminDashboard } from "./components/admin/AdminDashboard";
 import { AdminLogin } from "./components/admin/AdminLogin";
 import { AdminMapsPage } from "./components/admin/AdminMapsPage";
 import { MapEditor } from "./components/admin/MapEditor";
+import { ErrorPage } from "./components/ErrorPage";
 import { Landing } from "./components/Landing";
 import { MapBySlugPage } from "./components/MapBySlugPage";
 import { MapPage } from "./components/MapPage";
+import { NotFoundPage } from "./components/NotFoundPage";
 import { Toaster } from "./components/ui/sonner";
 import { AdminAuthProvider, RequireAdmin } from "./lib/adminAuth";
 import { ThemeProvider } from "./lib/theme";
@@ -37,36 +40,47 @@ export default function App() {
       <Toaster />
       <AdminAuthProvider>
         <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/map" element={<MapPage />} />
-            <Route path="/m/:slug" element={<MapBySlugPage />} />
-            <Route path="/admin/login" element={<AdminLogin />} />
-            <Route
-              path="/admin"
-              element={
-                <RequireAdmin>
-                  <AdminDashboard />
-                </RequireAdmin>
-              }
-            />
-            <Route
-              path="/admin/maps"
-              element={
-                <RequireAdmin>
-                  <AdminMapsPage />
-                </RequireAdmin>
-              }
-            />
-            <Route
-              path="/admin/maps/:slug"
-              element={
-                <RequireAdmin>
-                  <MapEditor />
-                </RequireAdmin>
-              }
-            />
-          </Routes>
+          {/* Catches any uncaught render error anywhere below (brief follow-up:
+              themed error page) -- without this, React unmounts the whole tree
+              to a blank white screen on an uncaught error, the exact opposite
+              of "production grade." Inside BrowserRouter (not outside) so
+              ErrorPage's own <Link> buttons still have router context. */}
+          <Sentry.ErrorBoundary fallback={<ErrorPage />}>
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/map" element={<MapPage />} />
+              <Route path="/m/:slug" element={<MapBySlugPage />} />
+              <Route path="/admin/login" element={<AdminLogin />} />
+              <Route
+                path="/admin"
+                element={
+                  <RequireAdmin>
+                    <AdminDashboard />
+                  </RequireAdmin>
+                }
+              />
+              <Route
+                path="/admin/maps"
+                element={
+                  <RequireAdmin>
+                    <AdminMapsPage />
+                  </RequireAdmin>
+                }
+              />
+              <Route
+                path="/admin/maps/:slug"
+                element={
+                  <RequireAdmin>
+                    <MapEditor />
+                  </RequireAdmin>
+                }
+              />
+              {/* Catch-all -- must stay last; react-router matches in
+                  declaration order (brief follow-up: themed 404 page for
+                  any unmatched path instead of rendering nothing). */}
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Sentry.ErrorBoundary>
         </BrowserRouter>
       </AdminAuthProvider>
     </ThemeProvider>

@@ -154,3 +154,21 @@ body,
     @apply font-sans;
   }
 }
+
+/* Gentle bob for NotFoundPage's "lost pin" icon -- a slower, smaller-amplitude
+   motion than any of tw-animate-css's built-in keyframes offer, since a 404
+   page calls for "misplaced," not "bouncing"/"pulsing" (both already used
+   elsewhere for working/attention states and would read as the wrong mood
+   here). */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}

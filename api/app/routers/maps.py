@@ -23,7 +23,19 @@ from app.db import get_connection
 from app.registry.audit import write_audit_log
 from app.registry.slugs import slugify
 from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# Security audit finding: PopupStyle's color fields used to accept any
+# plain `str` with no validation, then went straight into an HTML `style=`
+# attribute client-side (MapBySlugPage.tsx's buildFeatureHtml) with no
+# escaping -- an admin/curator account setting e.g. background_color to
+# `red;"><script>...</script>` was a genuine stored-XSS path against every
+# public visitor of that Map. A hex-color pattern rejects anything that
+# isn't actually a color at the API boundary (Pydantic validates on
+# write), which is a stronger guarantee than escaping client-side alone
+# (defense in depth, not a replacement -- MapBySlugPage.tsx's own
+# escapeHtml still covers feature *data* values, a separate input).
+_HEX_COLOR_PATTERN = r"^#[0-9a-fA-F]{3}([0-9a-fA-F]{3}([0-9a-fA-F]{2})?)?$"
 
 router = APIRouter(tags=["maps"])
 
@@ -34,11 +46,15 @@ class PopupStyle(BaseModel):
     philosophy as StylePanel's fill/line/label controls (no per-field
     theming, no rich text)."""
 
-    background_color: str = "#ffffff"
-    text_color: str = "#111111"
-    border_color: str = "#e5e7eb"
-    border_radius: int = 8
-    font_size: int = 13
+    background_color: str = Field(default="#ffffff", pattern=_HEX_COLOR_PATTERN)
+    text_color: str = Field(default="#111111", pattern=_HEX_COLOR_PATTERN)
+    border_color: str = Field(default="#e5e7eb", pattern=_HEX_COLOR_PATTERN)
+    # Bounded ranges, not just "an int" -- a popup card is never usefully
+    # 0px or 500px of border-radius/font-size; the ceiling also keeps a
+    # typo'd admin value from producing a visually broken (not just
+    # unvalidated) public popup.
+    border_radius: int = Field(default=8, ge=0, le=48)
+    font_size: int = Field(default=13, ge=8, le=32)
 
 
 class LayerPopupConfig(BaseModel):

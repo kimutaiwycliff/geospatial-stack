@@ -5,14 +5,22 @@ app/create_admin.py). If this router grows a second route, it should be
 """
 from app.auth.security import create_access_token, verify_password
 from app.db import get_connection
-from fastapi import APIRouter, Depends, HTTPException
+from app.rate_limit import limiter
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login")
-def login(form: OAuth2PasswordRequestForm = Depends()):
+# 10/minute per source IP -- generous enough that a legitimate admin
+# mistyping their password a few times never gets locked out, tight enough
+# that brute-forcing a password of any real length is infeasible. `request`
+# is required by slowapi's decorator (it reads the caller's IP off it via
+# get_remote_address, see app/rate_limit.py) even though the route body
+# never touches it directly.
+@limiter.limit("10/minute")
+def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
     """`OAuth2PasswordRequestForm` expects `username`+`password` fields
     (form-encoded, not JSON) -- `username` carries the account's email here,
     there's no separate username concept in auth.users."""

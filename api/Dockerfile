@@ -35,6 +35,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY worker/ ./worker/
 
+# Security audit finding: this image (shared by api/worker/flower/
+# celery-exporter) ran as root with no USER directive at all -- the worker
+# specifically runs DuckDB/GDAL/tippecanoe against arbitrary curator-
+# uploaded data, so a future parsing bug there getting root inside the
+# container is a materially worse outcome than getting a restricted user.
+# Nothing any of the four services do needs root: pip installs above
+# already ran as root (needed for system site-packages), everything after
+# this only reads its own already-copied source, writes to /tmp (world-
+# writable) or talks to Postgres/Redis/S3 over the network.
+RUN useradd --system --no-create-home --uid 10001 appuser
+USER appuser
+
 # docker-compose.yml's healthcheck curls http://localhost:8000/healthz from
 # *inside* this container, so uvicorn must bind 0.0.0.0 (not 127.0.0.1) and
 # the port here must match the healthcheck's port exactly. `worker`/`flower`

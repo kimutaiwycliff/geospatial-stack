@@ -12,18 +12,33 @@ There is no second "/api/..."-prefixed route to define or keep in sync --
 adding one would double-handle the path and break the Caddy-proxied case.
 """
 import json
+import logging
 import os
+import time
+import uuid
 
 import sentry_sdk
 from app.db import get_connection
+from app.logging_config import configure_logging
+from app.rate_limit import limiter
 from app.routers import auth as auth_router
 from app.routers import governance as governance_router
 from app.routers import maps as maps_router
 from app.routers import uploads as uploads_router
 from app.styles import router as styles_router
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+# Structured logging (brief follow-up: "collects logs well") -- must run
+# before anything else logs a line, so every logger (including uvicorn's
+# own access/error loggers) picks up the JSON formatter from the start.
+configure_logging()
+logger = logging.getLogger("app.request")
 
 # Sentry (brief §12). No Sentry project exists yet for this client -- init
 # with an empty/missing DSN is a documented no-op in sentry-sdk (it skips
@@ -39,6 +54,60 @@ sentry_sdk.init(
 )
 
 app = FastAPI(title="geoplatform-api")
+
+# Rate limiting (security audit finding -- see app/rate_limit.py). Applied
+# per-route via @limiter.limit(...) (currently just /auth/login, app/routers/
+# auth.py) -- registering the limiter/handler/middleware here is what makes
+# that decorator actually enforce anything instead of being a no-op.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# Upload size cap, defense in depth alongside caddy/Caddyfile's own
+# `request_body { max_size 250MB }` on /api/* (production-readiness audit
+# finding: nothing capped request size anywhere, and app/routers/uploads.py
+# buffers the whole file into process memory via `await file.read()`).
+# Caddy's limit protects the proxied path; this middleware protects
+# anything that reaches this container directly (e.g. local dev against
+# :8000, bypassing Caddy entirely) -- checked against the client-supplied
+# Content-Length header before the body is ever read, so an oversized
+# request is rejected without allocating memory for it first.
+_MAX_UPLOAD_BYTES = 250 * 1024 * 1024
+
+
+@app.middleware("http")
+async def max_upload_size_guard(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length is not None and int(content_length) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+    return await call_next(request)
+
+
+# One structured log line per request (brief follow-up: "collects logs
+# well") -- prometheus-fastapi-instrumentator below gives aggregate
+# latency histograms, but has no per-request record with a request id to
+# correlate against a specific user's bug report or a Sentry event.
+# `X-Request-ID` on the response lets a curator's "it broke just now" report
+# be matched back to this exact log line in Grafana/Loki.
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = round((time.monotonic() - start) * 1000, 2)
+    logger.info(
+        "request",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+            "client_ip": request.client.host if request.client else None,
+        },
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 # Per-route request count/latency histograms at /metrics (brief §12: "tile
 # latency, DB health, job queue depth" -- this is the API-side slice of

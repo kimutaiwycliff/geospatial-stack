@@ -1,0 +1,45 @@
+# Minimal single-binary Loki config for this stack's log storage (brief
+# follow-up: "connect the observability tools ... collects logs well" --
+# Prometheus/Grafana already covered metrics, but nothing shipped/stored
+# container logs anywhere before this; they only ever lived in `docker
+# compose logs`, unsearchable and gone on container recreation).
+#
+# Filesystem storage, no S3/object-store backend -- matches this project's
+# current "local Docker only" deployment scope (same reasoning as MinIO
+# being the default S3 provider rather than requiring R2 from day one).
+# TSDB + a single in-memory ring is the documented minimal setup for a
+# one-node deployment; there is no clustering/HA concern here.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # 7 days -- generous enough to debug "what happened yesterday" without
+  # the chunks volume growing unbounded on a single-VPS box with no
+  # external log archive. Tune via this file directly; there's no env var
+  # plumbed through for it since it's an operational knob, not a secret.
+  retention_period: 168h
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h

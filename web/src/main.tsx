@@ -4,8 +4,24 @@ import { createRoot } from "react-dom/client";
 // `addProtocol` is a module-level function, not a method on a Map instance.
 import { addProtocol, setWorkerUrl } from "maplibre-gl";
 import { Protocol } from "pmtiles";
+import * as Sentry from "@sentry/react";
 import App from "./App";
 import "../styles/index.css";
+
+// Frontend half of brief §12's Sentry coverage -- api/app/main.py and
+// worker/celery_app.py have had this since Phase 3; the SPA never did,
+// leaving zero visibility into client-side render errors/crashes. Same
+// no-DSN-means-no-op contract as both of those: `dsn: ""` disables the SDK
+// entirely (documented Sentry behavior), so this is safe with nothing
+// configured. VITE_SENTRY_DSN is a SEPARATE Sentry project's DSN from the
+// backend's SENTRY_DSN (a JS/browser project, not the Python one) -- Vite
+// only inlines `VITE_`-prefixed env vars into the client bundle, and
+// backend/frontend Sentry projects are normally split anyway (different
+// platform, different source maps).
+Sentry.init({
+  dsn: import.meta.env.VITE_SENTRY_DSN ?? "",
+  tracesSampleRate: 0,
+});
 
 // MapLibre's own automatic worker-URL resolution 404s once Vite bundles the
 // library into our app chunk (see vite.config.ts and

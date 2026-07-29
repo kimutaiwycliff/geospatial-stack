@@ -12,8 +12,27 @@ functions register.
 import os
 
 import sentry_sdk
+from app.logging_config import JsonFormatter
 from celery import Celery
+from celery.signals import after_setup_logger, after_setup_task_logger
 from sentry_sdk.integrations.celery import CeleryIntegration
+
+
+# Structured logging (brief follow-up: "collects logs well") -- Celery
+# installs its own formatter on its loggers during startup regardless of
+# anything the API side does (app/logging_config.py's configure_logging()
+# only ever runs in the api/uvicorn process, a separate container). These
+# two signals are Celery's own documented hook for swapping the formatter
+# on an already-configured logger/task-logger, without disabling Celery's
+# entire logging setup the way overriding the `setup_logging` signal would
+# (which would also mean losing Celery's own log-level/redirect-stdout
+# handling). Reuses the identical JsonFormatter the API uses -- one
+# implementation, not two.
+@after_setup_logger.connect
+@after_setup_task_logger.connect
+def _use_json_formatter(logger=None, **_kwargs):
+    for handler in logger.handlers:
+        handler.setFormatter(JsonFormatter())
 
 # Sentry (brief §12), worker side. FastAPI has its own sentry_sdk.init() in
 # app/main.py -- API and worker are separate processes (separate

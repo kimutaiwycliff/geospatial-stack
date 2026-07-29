@@ -26,4 +26,11 @@ WORKDIR /work
 COPY build_basemap.py .
 COPY common.py .
 
+# Security audit finding: every container in this stack ran as root by
+# default (no Dockerfile anywhere had a USER directive). This one only
+# reads a public tile source and writes to S3/MinIO over the network --
+# no reason for it to hold root inside its own container while doing so.
+RUN useradd --system --no-create-home --uid 10001 appuser
+USER appuser
+
 CMD ["python3", "build_basemap.py"]

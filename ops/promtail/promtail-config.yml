@@ -1,0 +1,48 @@
+# Ships every container's stdout/stderr into Loki (see ops/loki/loki-config.yml).
+# Uses Promtail's Docker service discovery (docker_sd_configs) rather than
+# statically listing log file paths -- new services (a future dataset-
+# specific worker, another exporter, ...) get picked up automatically, the
+# same "don't hardcode what the platform can discover itself" principle
+# this app already applies to datasets/maps.
+#
+# TRADEOFF, documented deliberately (matching this repo's existing pattern
+# of flagging known tradeoffs rather than silently accepting them -- see
+# docs/deploy.md's mutable-image-tags note): this requires mounting
+# /var/run/docker.sock into the promtail container (read-only) so it can
+# list containers and tail their JSON log files. A `:ro` bind mount does
+# NOT limit which Docker API calls are reachable over that socket -- it
+# only stops promtail from replacing the socket file itself -- so a
+# compromised promtail process would have full Docker-daemon access (i.e.
+# root-equivalent on the host). This is the standard, low-friction pattern
+# for single-host Promtail+Loki (what Grafana's own docs recommend for
+# this exact setup) and is an accepted tradeoff for a single-operator local
+# deployment; a hardened follow-up would put a socket proxy (e.g.
+# tecnativa/docker-socket-proxy, scoped to read-only container/log
+# endpoints) between promtail and the real socket before this stack is
+# ever exposed multi-tenant.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Compose service name (e.g. "api", "worker") -- the label an operator
+      # actually wants to filter by in Grafana's Explore view, not the raw
+      # container name/id Docker assigns.
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: service
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: stream

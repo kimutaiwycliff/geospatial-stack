@@ -5,6 +5,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { LoadingPage } from "./LoadingPage";
 import { SearchableFilterSelect } from "./SearchableFilterSelect";
 import { fetchDatasets, isMappable, type Dataset } from "../lib/api";
 import {
@@ -343,6 +344,14 @@ export function MapBySlugPage() {
         </Link>
       </div>
     );
+  }
+
+  // Both fetches in the first effect above are in flight until this --
+  // used to fall straight through to the map container div below with
+  // nothing in it (no basemap, no controls) until both landed, a blank
+  // screen with no indication anything was happening.
+  if (!config || datasets.length === 0) {
+    return <LoadingPage message="Loading map…" />;
   }
 
   return (

@@ -13,6 +13,7 @@ import json
 import re
 
 import pandas as pd
+import psycopg2
 from psycopg2.extras import execute_values
 
 from worker.celery_app import celery_app
@@ -24,6 +25,20 @@ from worker.seed_datasets import TABULAR_SOURCE as _SOURCE
 
 # TABULAR_DATASET_META (+ the three constants above) moved to worker/
 # seed_datasets.py, same reasoning as tasks.py's DATASET_META import above it.
+
+# Same production-readiness-audit retry policy as tasks.py's identical
+# `_RETRY_KWARGS` (a dropped DB connection shouldn't permanently fail a
+# tabular ingest either) -- duplicated rather than imported cross-module
+# since this file has no other dependency on tasks.py and the tuple/dict is
+# three lines; not worth a shared module for that. Only psycopg2 here (no
+# S3/boto3 involved in the tabular path at all), unlike tasks.py's pair.
+_RETRY_KWARGS = dict(
+    autoretry_for=(psycopg2.OperationalError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=3,
+)
 
 
 def _clean_col(name) -> str:
@@ -37,7 +52,7 @@ def _table_name(slug: str) -> str:
     return slug.replace("-", "_")
 
 
-@celery_app.task(bind=True, soft_time_limit=300, time_limit=360)
+@celery_app.task(bind=True, soft_time_limit=300, time_limit=360, **_RETRY_KWARGS)
 def ingest_tabular_task(self, slug: str):
     meta = TABULAR_DATASET_META[slug]
     df = pd.read_excel(meta["file_path"], sheet_name=meta["sheet"])
@@ -86,7 +101,7 @@ def ingest_tabular_task(self, slug: str):
     return {"slug": slug, "step": "ingest_tabular", "rows": len(df), "table": table}
 
 
-@celery_app.task(bind=True, soft_time_limit=120, time_limit=180)
+@celery_app.task(bind=True, soft_time_limit=120, time_limit=180, **_RETRY_KWARGS)
 def build_country_summary_view_task(self, prev_results=None):
     """brief §1.4: "a small PostGIS table (or set of registry-linked tables)
     joining the national indicator datasets by country." Implemented as a

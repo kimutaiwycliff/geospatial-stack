@@ -1,0 +1,11 @@
+# Second datasource alongside prometheus.yml -- lets Grafana's Explore view
+# query logs (LogQL) the same way it already queries metrics (PromQL),
+# without a manual "Add data source" click on first boot.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: true

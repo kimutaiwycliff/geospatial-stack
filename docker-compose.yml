@@ -4,11 +4,31 @@
 # local dev, so the network topology matches what will run on the VPS later.
 # `docker-compose.override.yml` layers local-only conveniences (extra exposed
 # ports for direct DB/MinIO access while developing) on top of this file.
+#
+# `restart: unless-stopped` on every long-running service (added per a
+# production-readiness audit finding: nothing restarted automatically
+# before this, so a crashed container just stayed down until someone ran
+# `docker compose up` by hand). Deliberately NOT applied to `migrate` and
+# `basemap` -- both are one-shot jobs designed to exit 0 and stay exited;
+# `depends_on: condition: service_completed_successfully` (used by every
+# service that waits on `migrate`) requires that terminal "exited 0, not
+# restarting" state, which `unless-stopped` would undermine.
+#
+# `mem_limit`/`cpus` on every service (same audit finding: nothing capped
+# resource usage, so `worker` -- which runs DuckDB/GDAL/tippecanoe against
+# arbitrary uploaded data -- could OOM the whole host). Legacy top-level
+# keys (not `deploy.resources.limits`) since this stack only ever runs via
+# `docker compose up`, never `docker stack deploy`/Swarm. `worker` gets the
+# most headroom, matching docs/deploy.md's own documented "2-3GB RAM" real
+# usage for tiling a non-trivial dataset.
 
 services:
   # --- Canonical spatial database ------------------------------------------
   db:
     image: postgis/postgis:17-3.5
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -31,6 +51,7 @@ services:
   # --- One-shot schema migration runner --------------------------------------
   migrate:
     image: ghcr.io/amacneil/dbmate:2
+    mem_limit: 512m
     depends_on:
       db:
         condition: service_healthy
@@ -71,6 +92,7 @@ services:
     build:
       context: ./basemap
       dockerfile: Dockerfile
+    mem_limit: 512m
     depends_on:
       storage:
         condition: service_healthy
@@ -79,6 +101,9 @@ services:
   # --- Dynamic vector tiles from PostGIS -------------------------------------
   martin:
     image: ghcr.io/maplibre/martin:latest
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
     depends_on:
       db:
         condition: service_healthy
@@ -94,6 +119,9 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
     depends_on:
       db:
         condition: service_healthy
@@ -113,6 +141,13 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    restart: unless-stopped
+    # Highest ceiling of any service -- DuckDB/GDAL/tippecanoe against a
+    # real (non-fixture) dataset is documented (docs/deploy.md) at 2-3GB;
+    # 3g/2.0 gives that headroom without leaving the limit effectively
+    # unbounded.
+    mem_limit: 3g
+    cpus: 2.0
     command: ["celery", "-A", "worker.celery_app", "worker", "--loglevel=INFO"]
     depends_on:
       db:
@@ -133,6 +168,9 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
     command: ["celery", "-A", "worker.celery_app", "flower", "--port=5555"]
     depends_on:
       redis:
@@ -142,6 +180,9 @@ services:
   # --- Broker + result backend for Celery -------------------------------------
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -151,6 +192,9 @@ services:
   # --- S3-compatible object store (default; swap to R2 via .env S3_* vars) --
   storage:
     image: minio/minio:latest
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -168,6 +212,14 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      # Empty default (no-op Sentry, same contract as every other DSN in
+      # this stack) -- set VITE_SENTRY_DSN in .env and rebuild `web` once a
+      # real frontend Sentry project exists (see web/src/main.tsx).
+      args:
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
     depends_on:
       - api
 
@@ -178,6 +230,9 @@ services:
   # `postgres://` scheme fine; no need for a `postgresql://` rewrite.
   postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:latest
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
     depends_on:
       db:
         condition: service_healthy
@@ -192,6 +247,9 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
     command: ["python", "-m", "worker.queue_exporter"]
     depends_on:
       redis:
@@ -200,6 +258,9 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
     volumes:
       - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -211,6 +272,9 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       # Provisioning-via-files (datasource + dashboard both load from
       # ops/grafana/provisioning on boot -- see that directory) is the part
@@ -228,12 +292,44 @@ services:
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
+      - loki
+
+  # Log store (brief follow-up: "collects logs well") -- see
+  # ops/loki/loki-config.yml for why filesystem-only/single-node.
+  loki:
+    image: grafana/loki:latest
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+    volumes:
+      - ./ops/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+
+  # Ships every container's stdout/stderr into Loki -- see
+  # ops/promtail/promtail-config.yml for the Docker-service-discovery
+  # approach and its documented docker.sock tradeoff.
+  promtail:
+    image: grafana/promtail:latest
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.25
+    volumes:
+      - ./ops/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on:
+      - loki
 
   # --- Edge: TLS, routing, compression, cache, rate limit --------------------
   # Only this service publishes host ports -- PostGIS/Redis/MinIO/API are
   # reachable only on the internal Docker network (brief §10).
   proxy:
     image: caddy:2-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
     depends_on:
       - web
       - api
@@ -254,3 +350,4 @@ volumes:
   caddy_config:
   prometheus_data:
   grafana_data:
+  loki_data:

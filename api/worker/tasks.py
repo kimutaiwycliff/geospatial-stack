@@ -22,12 +22,41 @@ import subprocess
 import tempfile
 import zipfile
 
+import psycopg2
+from botocore.exceptions import ConnectionError as BotoConnectionError
 from celery import chain
 from psycopg2.extras import execute_values
 
 from worker.celery_app import celery_app
-from worker.common import ensure_bucket, get_duckdb_conn, get_pg_conn, get_s3_client, is_macos_zip_artifact, s3_uri, upload_file
+from worker.common import (
+    ensure_bucket,
+    get_duckdb_conn,
+    get_pg_conn,
+    get_s3_client,
+    is_macos_zip_artifact,
+    s3_uri,
+    upload_file,
+)
 from worker.seed_datasets import DATASET_META
+
+# Production-readiness audit finding: no task here retried anything -- a
+# transient S3 hiccup or a dropped DB connection permanently failed an
+# entire ingest chain, requiring the curator to manually re-upload rather
+# than the pipeline just recovering on its own. Narrow on purpose (NOT
+# `Exception` broadly): a genuinely bad input (corrupt shapefile, invalid
+# CRS) should fail immediately and tell the curator, not retry 3 times
+# against the same unfixable file. Every task's own SQL is already
+# idempotent per-attempt (CREATE TABLE on a fresh DuckDB connection each
+# run, INSERT/UPSERT-style writes downstream) -- confirmed before relying
+# on retry-from-scratch being safe here.
+_TRANSIENT_EXCEPTIONS = (psycopg2.OperationalError, BotoConnectionError)
+_RETRY_KWARGS = dict(
+    autoretry_for=_TRANSIENT_EXCEPTIONS,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=3,
+)
 
 # DATASET_META moved to worker/seed_datasets.py (Phase 5, brief §17's
 # reusability pass) -- it's example/seed CONTENT for this deployment's
@@ -119,6 +148,22 @@ def _metadata_for(slug: str, pg) -> dict:
 # already rejects an archive missing this member at upload time, so this is
 # a defense-in-depth re-check, not the primary gate).
 _ARCHIVE_INNER_SUFFIX = {".zip": ".shp", ".kmz": ".kml"}
+
+
+def _sql_string_literal(value: str) -> str:
+    """Escapes `value` for safe interpolation inside a single-quoted SQL
+    string literal (standard SQL: a literal `'` is written as `''`, DuckDB
+    follows this same convention). Security audit finding: `read_path`
+    below is built from a curator-uploaded filename (either the outer
+    upload's own name, or -- for a zipped Shapefile/KMZ -- a member name
+    from INSIDE the zip, both fully attacker-controlled) and was
+    interpolated into `ST_Read('{read_path}')` with no escaping at all. A
+    filename containing a single quote (e.g. `x'); ATTACH '/etc/passwd' AS
+    pwn;--.geojson`) broke out of the string literal and let arbitrary
+    DuckDB SQL run in the worker container -- arbitrary file reads, or
+    exfiltrating the S3 credentials DuckDB already holds in-session.
+    """
+    return value.replace("'", "''")
 
 
 def _s3_uri_to_bucket_key(uri: str) -> tuple[str, str]:
@@ -230,7 +275,7 @@ def _write_failure_report(slug: str, message: str) -> None:
     pg.close()
 
 
-@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
+@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600, **_RETRY_KWARGS)
 def ingest_task(self, source_path: str, slug: str):
     """Step 1: source file -> immutable GeoParquet in raw/, registry row
     created with tier_status=raw (brief §4 "registry-first"). Raw stays in
@@ -242,9 +287,21 @@ def ingest_task(self, source_path: str, slug: str):
     Wrapped in try/except -- see `_write_failure_report`'s docstring for
     why: without it, any failure here left the admin UI polling forever
     with no way to distinguish "still running" from "already dead."
+
+    A `_TRANSIENT_EXCEPTIONS` failure that Celery is about to autoretry
+    (see `_RETRY_KWARGS`) deliberately skips `_write_failure_report` --
+    writing "failed" for a blip that's about to quietly recover would
+    flicker the curator's UI to a failure state moments before it
+    self-heals. Once retries are actually exhausted (`self.request.retries
+    >= self.max_retries`), this is a real terminal failure like any other,
+    so the report gets written same as always.
     """
     try:
         return _run_ingest(source_path, slug)
+    except _TRANSIENT_EXCEPTIONS as exc:
+        if self.request.retries >= self.max_retries:
+            _write_failure_report(slug, f"ingest failed after {self.request.retries} retries: {exc}")
+        raise
     except Exception as exc:
         _write_failure_report(slug, f"ingest failed: {exc}")
         raise
@@ -255,7 +312,7 @@ def _run_ingest(source_path: str, slug: str) -> dict:
     con = get_duckdb_conn()
 
     with _resolved_source(source_path) as read_path:
-        con.execute(f"CREATE TABLE src AS SELECT * FROM ST_Read('{read_path}')")
+        con.execute(f"CREATE TABLE src AS SELECT * FROM ST_Read('{_sql_string_literal(read_path)}')")
     geom_col = next(c[1] for c in con.execute("PRAGMA table_info('src')").fetchall() if c[2].startswith("GEOMETRY"))
     if geom_col != "geom":
         con.execute(f'ALTER TABLE src RENAME COLUMN "{geom_col}" TO geom')
@@ -301,7 +358,7 @@ def _run_ingest(source_path: str, slug: str) -> dict:
     return {"slug": slug, "step": "ingest", "rows": row_count, "source_srid": srid, "dest": dest}
 
 
-@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
+@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600, **_RETRY_KWARGS)
 def curate_task(self, prev_result, slug: str):
     """Step 2: raw -> validated/cleaned GeoParquet in curated/ -- CRS
     reprojection to EPSG:4326 (brief §4 CRS discipline), ST_IsValid/
@@ -310,10 +367,15 @@ def curate_task(self, prev_result, slug: str):
     Celery `chain()` after ingest_task.
 
     Wrapped in try/except -- same reasoning as ingest_task's identical
-    wrapper, see `_write_failure_report`'s docstring.
+    wrapper, see `_write_failure_report`'s docstring. Same retry-aware
+    skip as ingest_task above -- see that function's docstring.
     """
     try:
         return _run_curate(slug)
+    except _TRANSIENT_EXCEPTIONS as exc:
+        if self.request.retries >= self.max_retries:
+            _write_failure_report(slug, f"curate failed after {self.request.retries} retries: {exc}")
+        raise
     except Exception as exc:
         _write_failure_report(slug, f"curate failed: {exc}")
         raise
@@ -425,7 +487,7 @@ def _sample_features(con, table: str, limit: int = 5) -> list:
     return features
 
 
-@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
+@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600, **_RETRY_KWARGS)
 def contract_test_task(self, prev_result, slug: str):
     """Step 3: contract gate on curated output -- schema, validity, WGS84
     range, row-count sanity (brief §5 step 3), PLUS (brief §16 step 3) a
@@ -498,7 +560,7 @@ def contract_test_task(self, prev_result, slug: str):
     return {"slug": slug, "step": "contract_test", "row_count": count, "passed": True}
 
 
-@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
+@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600, **_RETRY_KWARGS)
 def load_postgis_task(self, prev_result, slug: str, serve_mode: str | None = None):
     """Step 4: curated -> published.<table> with a spatial index + ANALYZE,
     registry flips to tier_status=published.
@@ -575,7 +637,7 @@ def load_postgis_task(self, prev_result, slug: str, serve_mode: str | None = Non
     return {"slug": slug, "step": "load_postgis", "rows": len(values), "table": table}
 
 
-@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
+@celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600, **_RETRY_KWARGS)
 def build_pmtiles_task(self, prev_result, slug: str):
     """Step 5 (static path): curated GeoParquet -> tippecanoe -> PMTiles ->
     uploaded to object storage, publicly readable (brief §0.10/§5 step 5).

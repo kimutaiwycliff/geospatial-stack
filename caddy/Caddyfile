@@ -2,6 +2,23 @@
 # docker-compose.yml). Production swaps this for a real domain + `tls` block --
 # Caddy then handles cert issuance automatically, so this file barely changes.
 :80 {
+	# Security headers (production-readiness audit finding: none existed at
+	# all before this). Applies to every route below since it's outside any
+	# `handle`/`handle_path` block. CSP intentionally allows `https:` broadly
+	# for img-src/font-src/connect-src rather than enumerating every tile/
+	# font/geocoder origin by hand (Protomaps' asset CDN, Nominatim, this
+	# app's own MinIO/Martin routes) -- script-src and frame-ancestors are
+	# the two directives that actually matter for this app's real XSS/
+	# clickjacking exposure, and those stay strict. Verify against the
+	# browser console after deploying (devtools reports any CSP violation by
+	# name) rather than assuming this enumeration is complete.
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';"
+	}
+
 	# Dynamic vector tiles (Martin, reads live from PostGIS) -- brief §3
 	# traffic-split: anything filtered/edited at request time goes here.
 	handle_path /tiles/* {
@@ -24,8 +41,19 @@
 		reverse_proxy storage:9000
 	}
 
-	# Public read API + auth-gated admin + job-trigger endpoints.
+	# Public read API + auth-gated admin + job-trigger endpoints. 250MB caps
+	# the multipart upload body here at the edge (production-readiness audit
+	# finding: nothing capped upload size anywhere, and app/routers/
+	# uploads.py buffers the whole file into process memory via `await
+	# file.read()` -- an uncapped request could exhaust the api container's
+	# memory before the worker even sees it). FastAPI has its own
+	# Content-Length guard too (app/main.py's max_upload_size_guard
+	# middleware) as defense in depth for anything that reaches the api
+	# container directly, bypassing Caddy (e.g. local dev against :8000).
 	handle_path /api/* {
+		request_body {
+			max_size 250MB
+		}
 		reverse_proxy api:8000 {
 			header_up X-Forwarded-Prefix /api
 		}

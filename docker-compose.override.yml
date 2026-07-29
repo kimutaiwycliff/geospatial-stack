@@ -38,3 +38,10 @@ services:
   grafana:
     ports:
       - "3001:3000"
+
+  # Same dev-convenience rationale as prometheus above -- lets you curl
+  # Loki's own API directly (e.g. /loki/api/v1/labels) while debugging a
+  # promtail scrape config change, without going through Grafana's Explore.
+  loki:
+    ports:
+      - "3100:3100"

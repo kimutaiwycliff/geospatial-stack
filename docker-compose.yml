@@ -43,6 +43,29 @@ services:
     # dbmate reads DATABASE_URL from .env; runs once and exits 0 on success.
     command: ["--wait", "up"]
 
+  # --- One-shot self-hosted basemap build (brief §1.5) -----------------------
+  # Same "runs once and exits 0" shape as `migrate` -- extracts a world,
+  # low/mid-zoom PMTiles subset from Protomaps' public daily build and
+  # uploads it to `basemap/basemap.pmtiles`, which is what MapLibre actually
+  # renders underneath every dataset layer (web/src/lib/basemapStyle.ts).
+  # Without this service the object never gets created and the map renders
+  # with no basemap at all -- this used to be a manual, undocumented step
+  # (basemap/build_basemap.py run by hand); wiring it in here means `make up`/
+  # `make fresh-start` produce a working map with zero extra commands.
+  # Only depends on `storage` (not `db`/`migrate`) since it never touches
+  # Postgres. The script itself is idempotent (skips the extract+upload if
+  # the object already exists, see `_already_built`), so re-running this on
+  # every `docker compose up` -- same as `migrate` -- costs one cheap
+  # HEAD request once the basemap has been built.
+  basemap:
+    build:
+      context: ./basemap
+      dockerfile: Dockerfile
+    depends_on:
+      storage:
+        condition: service_healthy
+    env_file: .env
+
   # --- Dynamic vector tiles from PostGIS -------------------------------------
   martin:
     image: ghcr.io/maplibre/martin:latest

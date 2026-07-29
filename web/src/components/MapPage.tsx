@@ -3,9 +3,11 @@ import { XIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { fetchCountries, fetchDatasets, isMappable, type CountrySummary, type Dataset } from "../lib/api";
+import { asBasemapFlavor } from "../lib/basemapStyle";
 import { buildMapUrlParams, parseMapUrlState } from "../lib/urlState";
 import { WORLD_VIEW } from "../lib/regionCentroids";
 import type { Selection } from "../lib/selection";
+import { BasemapSwitcher } from "./BasemapSwitcher";
 import { MapView, type MapViewHandle } from "./MapView";
 import { LayerPanel } from "./LayerPanel";
 import { CountrySearch } from "./CountrySearch";
@@ -39,6 +41,7 @@ export function MapPage() {
   const [view, setView] = useState(initialUrlState.view ?? WORLD_VIEW);
   const [selectedIso, setSelectedIso] = useState<string | null>(initialUrlState.country);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [basemapFlavor, setBasemapFlavor] = useState(() => asBasemapFlavor(initialUrlState.basemap));
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panelOpenMobile, setPanelOpenMobile] = useState(false);
@@ -87,9 +90,16 @@ export function MapPage() {
   useEffect(() => {
     if (datasets.length === 0 || visibleSlugs === null) return;
     const allSlugs = datasets.filter(isMappable).map((d) => d.slug);
-    const params = buildMapUrlParams({ center: view.center, zoom: view.zoom, visibleSlugs, allSlugs, country: selectedIso });
+    const params = buildMapUrlParams({
+      center: view.center,
+      zoom: view.zoom,
+      visibleSlugs,
+      allSlugs,
+      country: selectedIso,
+      basemap: basemapFlavor,
+    });
     setSearchParams(params, { replace: true });
-  }, [view, visibleSlugs, selectedIso, datasets, setSearchParams]);
+  }, [view, visibleSlugs, selectedIso, basemapFlavor, datasets, setSearchParams]);
 
   function toggleLayer(slug: string) {
     setVisibleSlugs((prev) => {
@@ -145,6 +155,10 @@ export function MapPage() {
           </div>
           {loadError && <p className="text-sm text-destructive">{loadError}</p>}
           <CountrySearch countries={countries} selectedIso={selectedIso} onSelect={handleCountrySelect} />
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Basemap</span>
+            <BasemapSwitcher value={basemapFlavor} onChange={setBasemapFlavor} />
+          </div>
           <LayerPanel datasets={datasets} visibleSlugs={visibleSlugs ?? []} onToggle={toggleLayer} />
         </div>
       </div>
@@ -156,6 +170,7 @@ export function MapPage() {
           datasets={datasets}
           visibleSlugs={visibleSlugs ?? []}
           initialView={initialUrlState.view}
+          basemapFlavor={basemapFlavor}
           onFeatureSelect={selectAndShow}
           onViewChange={(center, zoom) => setView({ center, zoom })}
         />

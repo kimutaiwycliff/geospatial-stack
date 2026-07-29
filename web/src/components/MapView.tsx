@@ -8,7 +8,7 @@ import { Map as MapLibreMap, Popup, type LngLatBoundsLike, type MapMouseEvent } 
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchFeature, isMappable, type Dataset } from "../lib/api";
 import { fetchPublishedStyles } from "../lib/adminApi";
-import { buildBaseStyle } from "../lib/basemapStyle";
+import { applyBasemapFlavor, buildBaseStyle, DEFAULT_BASEMAP_FLAVOR, type BasemapFlavor } from "../lib/basemapStyle";
 import { geometryBounds, unionBounds } from "../lib/geo";
 import {
   buildFillLayer,
@@ -30,6 +30,13 @@ export interface MapViewProps {
   /** Only consulted once, on mount -- see the effect below for why the map
    * isn't kept "controlled" from outside after that. */
   initialView: { center: [number, number]; zoom: number } | null;
+  /** Reactive, unlike `initialView` -- MapPage's own basemap-style picker
+   * (BasemapSwitcher) needs later changes to actually repaint the map, so
+   * this behaves like `visibleSlugs` (a live prop the effect below watches)
+   * rather than a one-shot seed. Defaults to "light" so callers that don't
+   * care yet (there are none left, but keeps this prop non-breaking) get
+   * the original behavior. */
+  basemapFlavor?: BasemapFlavor;
   onFeatureSelect: (selection: Selection | null) => void;
   onViewChange: (center: [number, number], zoom: number) => void;
 }
@@ -44,7 +51,7 @@ export interface MapViewHandle {
 }
 
 export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
-  { datasets, visibleSlugs, initialView, onFeatureSelect, onViewChange },
+  { datasets, visibleSlugs, initialView, basemapFlavor = DEFAULT_BASEMAP_FLAVOR, onFeatureSelect, onViewChange },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -85,9 +92,13 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     if (!containerRef.current) return;
 
     const view = initialView ?? WORLD_VIEW;
+    // `basemapFlavor` here (not a ref) is deliberate -- same "only the FIRST
+    // render's value seeds the map" contract as `initialView` right above
+    // it; later changes are handled by the separate effect below, exactly
+    // like `visibleSlugs` already is for layer toggles.
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: buildBaseStyle(),
+      style: buildBaseStyle(basemapFlavor),
       center: view.center,
       zoom: view.zoom,
     });
@@ -213,6 +224,19 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         fillLayerIdsRef.current = mappable.map((d) => fillLayerId(d.slug));
       });
   }, [ready, datasets]);
+
+  // Basemap-style-switcher effect: reacts to `basemapFlavor` changing after
+  // mount (the mount effect above only ever applies the FIRST render's
+  // value). Runs once redundantly right when `ready` first flips true --
+  // harmless (it just re-applies the same flavor the mount effect already
+  // set), and safe regardless of whether this runs before or after the
+  // dataset-layers effect below since applyBasemapFlavor recomputes its
+  // insertion point fresh every call (see its own doc comment).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    applyBasemapFlavor(map, basemapFlavor);
+  }, [ready, basemapFlavor]);
 
   // Layer-toggle effect (brief §6.2 "layer toggles"): only touches
   // layout visibility, never re-adds/removes sources -- toggling a

@@ -6,8 +6,9 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { buttonVariants } from "@/components/ui/button";
 import { fetchDatasets, isMappable, type Dataset } from "../lib/api";
 import { fetchMap, fetchPublishedStyles, type PublicMapConfig } from "../lib/adminApi";
-import { buildBaseStyle } from "../lib/basemapStyle";
+import { applyBasemapFlavor, asBasemapFlavor, buildBaseStyle, type BasemapFlavor } from "../lib/basemapStyle";
 import { applyMapControls } from "../lib/mapControls";
+import { BasemapSwitcher } from "./BasemapSwitcher";
 import {
   buildFillLayer,
   buildOutlineLayer,
@@ -43,6 +44,10 @@ export function MapBySlugPage() {
   const [config, setConfig] = useState<PublicMapConfig | null>(null);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Seeded from this Map's saved `basemap` column once `config` loads (see
+  // the effect below) -- a viewer can still override it live via
+  // BasemapSwitcher without that changing what's actually saved server-side.
+  const [basemapFlavor, setBasemapFlavor] = useState<BasemapFlavor>("light");
 
   useEffect(() => {
     if (!slug) return;
@@ -53,6 +58,15 @@ export function MapBySlugPage() {
       .then(setDatasets)
       .catch(() => setError("Could not load the dataset registry."));
   }, [slug]);
+
+  useEffect(() => {
+    if (config) setBasemapFlavor(asBasemapFlavor(config.basemap));
+  }, [config]);
+
+  function handleBasemapChange(flavor: BasemapFlavor) {
+    setBasemapFlavor(flavor);
+    if (mapRef.current) applyBasemapFlavor(mapRef.current, flavor);
+  }
 
   useEffect(() => {
     if (!config || datasets.length === 0 || !containerRef.current || mapRef.current) return;
@@ -68,12 +82,16 @@ export function MapBySlugPage() {
       .filter((entry): entry is { layer: (typeof config.layers_json)[number]; dataset: Dataset } => entry.dataset != null && isMappable(entry.dataset));
 
     const view = config.default_extent ?? WORLD_VIEW;
-    // `config.basemap` is always "light" today (only flavor
-    // @protomaps/basemaps is wired up with, per basemapStyle.ts) -- carried
-    // through the API contract for a future picker, not switched on here.
+    // Read `config.basemap` directly here (not the `basemapFlavor` state
+    // variable) -- that state is seeded from `config` by a separate effect
+    // and updating it schedules a re-render rather than taking effect
+    // synchronously, which would risk this map's very first frame building
+    // with the stale "light" default for a Map actually configured to some
+    // other flavor. Reading straight off `config` sidesteps that race
+    // entirely: this effect already depends on `config` being non-null.
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: buildBaseStyle(),
+      style: buildBaseStyle(asBasemapFlavor(config.basemap)),
       center: view.center,
       zoom: view.zoom,
       // MapLibre silently adds its OWN default AttributionControl unless
@@ -178,7 +196,8 @@ export function MapBySlugPage() {
           </CardHeader>
         </Card>
       )}
-      <div className="absolute right-3 top-3 z-10">
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+        <BasemapSwitcher value={basemapFlavor} onChange={handleBasemapChange} className="w-32 bg-card/95 shadow" />
         <ThemeToggle />
       </div>
       <div ref={containerRef} className="h-full w-full" />

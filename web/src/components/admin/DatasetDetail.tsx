@@ -1,6 +1,10 @@
 import { useState } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { AdminDataset, DraftStyle } from "../../lib/adminApi";
+import { deleteDataset, UnauthorizedError, type AdminDataset, type DraftStyle } from "../../lib/adminApi";
+import { useAdminAuth } from "../../lib/adminAuth";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { GovernanceForm } from "./GovernanceForm";
 import { StylingPanel } from "./StylingPanel";
@@ -29,6 +33,7 @@ export function DatasetDetail({
   onGovernanceSaved,
   onDraftSaved,
   onDatasetPatch,
+  onDeleted,
 }: {
   token: string;
   dataset: AdminDataset;
@@ -41,8 +46,33 @@ export function DatasetDetail({
    * `onGovernanceSaved`'s name at this call site would read backwards even
    * though both ultimately call the same merge function in AdminDashboard. */
   onDatasetPatch: (patch: Partial<AdminDataset>) => void;
+  /** Called once the backend confirms the delete -- AdminDashboard removes
+   * this row from its list and clears the selection, since this whole
+   * component is about to stop having a dataset to render at all. */
+  onDeleted: () => void;
 }) {
+  const { logout } = useAdminAuth();
   const [tab, setTab] = useState<Tab>("governance");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteDataset(token, dataset.slug);
+      toast.success(`Deleted "${dataset.name}".`);
+      setConfirmOpen(false);
+      onDeleted();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        logout();
+        return;
+      }
+      toast.error(err instanceof Error ? err.message : "Could not delete this dataset.");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     // AdminDashboard now mounts a fresh instance of this component per
@@ -51,12 +81,41 @@ export function DatasetDetail({
     // "AdminDashboard's dataset detail panel appearing when a dataset is
     // selected" animation.
     <div className="flex flex-col gap-4 animate-in fade-in duration-200">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">{dataset.name}</h2>
-        <p className="text-xs text-muted-foreground">
-          {dataset.slug} &middot; tier: {dataset.tier_status}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">{dataset.name}</h2>
+          <p className="text-xs text-muted-foreground">
+            {dataset.slug} &middot; tier: {dataset.tier_status}
+          </p>
+        </div>
+        {/* No tier_status gating here on purpose -- an admin needs to
+            delete a dataset that's still validating, failed validation, or
+            is already published, all the same way (unlike Approve above,
+            which IS gated on validation having passed). */}
+        <Button type="button" variant="destructive" size="sm" onClick={() => setConfirmOpen(true)}>
+          Delete dataset
+        </Button>
       </div>
+
+      <Dialog open={confirmOpen} onOpenChange={(open) => !deleting && setConfirmOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete "{dataset.name}"?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the dataset's registry entry, its raw/curated data, any published table
+              and tiles, and the originally uploaded file. There is no undo short of a backup restore.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
         <TabsList>

@@ -14,11 +14,14 @@ defaults, roadmap) this was built against.
 - **Public map site** — an interactive map of every published layer, with
   country search, layer toggles, click-to-inspect popups, and shareable
   URLs (map state round-trips through the query string).
-- **Self-service upload** — an admin uploads a GeoJSON/GPKG/GeoParquet
-  file through the dashboard; it's validated automatically (geometry
-  validity, CRS, row count, a sample-feature preview) before anyone can
-  publish it. A failed validation shows exactly what's wrong, not just
-  "failed."
+- **Self-service upload** — an admin uploads a GeoJSON/GPKG/GeoParquet/KML
+  file, or a zipped Shapefile/KMZ, through the dashboard; it's validated
+  automatically (geometry validity, CRS, row count, a sample-feature
+  preview) before anyone can publish it. A failed validation shows exactly
+  what's wrong, not just "failed" — and a dataset in any state (still
+  validating, failed, awaiting approval, or already published) can be
+  deleted from the admin UI, which also cleans up its raw/curated data,
+  published table, tiles, and the originally uploaded file.
 - **Live styling** — set a layer's fill color/opacity from the admin UI,
   save a draft, publish it — no re-tiling, no deploy, visible on the
   public map within a page reload.
@@ -27,10 +30,18 @@ defaults, roadmap) this was built against.
   defaulting to the most protective option), editable from the admin UI,
   with a full audit trail of who changed what and when.
 - **Map authoring** — compose a named, curated map from a subset of
-  published layers, set a default view, choose which MapLibre controls it
-  shows (navigation, geolocate, a place-search box, a measure tool, a
-  minimap, lat/lon gridlines — each toggleable and positionable per map),
-  publish it, and share it via its own public URL (`/m/<slug>`).
+  published layers, set a default view and basemap style, choose which
+  MapLibre controls it shows (navigation, geolocate, a place-search box, a
+  measure tool, a minimap, lat/lon gridlines — each toggleable and
+  positionable per map), publish it, and share it via its own public URL
+  (`/m/<slug>`).
+- **Self-hosted basemap, 5 switchable styles** — a world OSM basemap
+  (`@protomaps/basemaps`, no external API key) is built and uploaded
+  automatically the first time the stack starts (see `basemap` in
+  `docker-compose.yml`); anyone viewing the map can switch between its
+  light/dark/white/grayscale/black color schemes from the sidebar (or a
+  Map's floating chrome), and a Map's author can pick which one it defaults
+  to.
 - **JWT auth**, `viewer`/`admin` roles, **no signup page by design** —
   admin accounts are created with `make create-admin`, never from the
   browser (see [`docs/reuse.md`](docs/reuse.md) for why).
@@ -41,7 +52,28 @@ defaults, roadmap) this was built against.
 
 ## Quick start (local Docker)
 
-Requires Docker + Docker Compose. From a fresh clone:
+### 0. Prerequisites — confirm Docker is installed
+
+```
+docker --version           # Docker Engine 24+ (anything reasonably recent is fine)
+docker compose version     # Compose v2 -- the `docker compose` subcommand, not the old standalone `docker-compose`
+```
+
+If either command isn't found: install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+(macOS/Windows) or [Docker Engine + the Compose plugin](https://docs.docker.com/engine/install/)
+(Linux), then make sure Docker is actually *running* (Docker Desktop's whale
+icon, or `sudo systemctl start docker` on Linux) before continuing — every
+command below fails immediately with a "Cannot connect to the Docker
+daemon" error if it isn't.
+
+### 1. Clone the repo
+
+```
+git clone <this-repo-url> geospatial_stack
+cd geospatial_stack
+```
+
+### 2. Configure and start
 
 ```
 cp .env.example .env      # or scripts/bootstrap-new-deployment.sh for a NEW deployment, see docs/reuse.md
@@ -52,16 +84,38 @@ make create-admin EMAIL=you@example.org PASSWORD=your-password
 That's it — the whole stack (database, object storage, tile server, API,
 background worker, frontend, reverse proxy, observability) is running.
 
-- **Public site:** http://localhost:8080 (via Caddy)
-- **Admin login:** http://localhost:8080/admin/login
-- **API docs (Swagger):** http://localhost:8000/docs
-- **Flower** (Celery task monitor): http://localhost:5555
-- **Grafana** (dashboards): http://localhost:3001 — local dev only, exposed by `docker-compose.override.yml`
-
 `make up` waits for nothing — check `make ps` after a few seconds and
 confirm every service says `healthy` (or has no healthcheck defined)
 before logging in; a fresh Postgres + migration run typically takes under
 a minute.
+
+### 3. URLs to open
+
+The one you'll actually use day to day is the first one — everything else
+is a supporting service, useful for debugging/monitoring rather than
+regular use.
+
+| URL | What it is |
+|---|---|
+| **http://localhost:8080** | The public map site (via Caddy) — a MapLibre GL map of every published layer/map, with search, layer toggles, a basemap style switcher, and click-to-inspect popups. This is what loads at `/` and is the whole point of the app. You should see a self-hosted OSM basemap immediately (world coverage, zoom 0-8) — no data layers yet is expected on a fresh database (see below), but a genuinely *blank/gray* map means the one-shot `basemap` service hasn't finished yet; check `docker compose logs basemap`. |
+| **http://localhost:8080/admin/login** | Admin login — sign in with the account `make create-admin` just created to upload data, style layers, and author maps. |
+| **http://localhost:8000/docs** | FastAPI's auto-generated Swagger UI — every API endpoint, request/response schemas, "try it out" included. |
+| **http://localhost:5555** | Flower — live Celery task monitor (upload validation/tiling jobs run here; watch a job here while it's processing). |
+| **http://localhost:3001** | Grafana dashboards — local dev only, exposed by `docker-compose.override.yml`. Log in with `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` from `.env`. |
+| **http://localhost:9090** | Prometheus's own web UI (`/targets` to check scrape health) — dev convenience only. |
+| **http://localhost:9001** | MinIO web console (the object store backing published layers/tiles) — log in with `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` from `.env`. |
+
+`localhost:5432` (Postgres) and `localhost:6379` (Redis) are also exposed
+locally for direct `psql`/`redis-cli` access, but have no web UI of their
+own.
+
+**Nothing to upload yet?** A fresh database has zero datasets, so the
+public map at `:8080` will render the self-hosted basemap with no data
+layers on top of it — that's correct, not broken (the basemap itself
+should still be visible; see the URL table above if it isn't). Log into
+`/admin/login`, upload a GeoJSON/GPKG/GeoParquet/KML file or a zipped
+Shapefile/KMZ, style it, and publish it (or a curated map) to see data on
+the public site.
 
 ## Makefile command reference
 
@@ -81,6 +135,7 @@ below for what's actually different in production.
 | `make ps` | Show every service's status (running/healthy/restarting). |
 | `make migrate` | Apply any database migrations that haven't run yet. `make up` already does this automatically on every start (the `migrate` service runs once and exits before `api` starts) — use this directly when you've added a migration to a stack that's already running and don't want to restart everything. |
 | `make create-admin EMAIL=... PASSWORD=...` | Create an admin account — or **reset the password of an existing one**, since this is an upsert. This is the *only* way to get admin access; there is no signup page (deliberate, see `docs/reuse.md`). |
+| `make build-basemap [FORCE=true]` | `make up` already builds the self-hosted basemap once automatically (the `basemap` service in `docker-compose.yml`) — this is for re-running it by hand. Bare, it's a harmless no-op once the basemap already exists; `FORCE=true` re-extracts and overwrites it (e.g. to pick up a newer Protomaps daily build). |
 | `make wipe` | **Destroys all data**: every dataset, map, admin account, and audit log entry, permanently. Asks you to type `wipe` to confirm first — there is no `-y`/force flag, so it can't be scripted past by accident. No undo short of a backup restore (`docs/backups.md`). |
 | `make fresh-start` | `wipe` → `build` → `up` — the full "start over from an empty database" sequence. Still asks for the `wipe` confirmation. After it finishes, the only remaining step is `make create-admin`. |
 

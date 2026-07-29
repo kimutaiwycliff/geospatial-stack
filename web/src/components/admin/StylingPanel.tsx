@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -56,6 +57,7 @@ export function StylingPanel({
       const result = await saveDraftStyle(token, slug, style);
       setHasDraft(true);
       setMessage({ kind: "success", text: "Draft saved." });
+      toast.success("Draft saved.");
       onDraftSaved({ slug, style_json: result.style_json, version: result.version, updated_by: "", updated_at: new Date().toISOString() });
     } catch (err) {
       // See GovernanceForm's identical branch -- 401 means the session
@@ -65,6 +67,7 @@ export function StylingPanel({
         return;
       }
       setMessage({ kind: "error", text: "Could not save draft." });
+      toast.error("Could not save draft.");
     } finally {
       setSaving(false);
     }
@@ -76,12 +79,14 @@ export function StylingPanel({
     try {
       await publishStyle(token, slug);
       setMessage({ kind: "success", text: "Published." });
+      toast.success("Style published.");
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         logout();
         return;
       }
       setMessage({ kind: "error", text: "Could not publish -- save a draft first." });
+      toast.error("Could not publish -- save a draft first.");
     } finally {
       setPublishing(false);
     }

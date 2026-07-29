@@ -3,7 +3,7 @@
 # deployment.sh couldn't already do by hand -- this just wraps the
 # multi-step or easy-to-typo sequences (wiping volumes, creating the first
 # admin) into single commands. Run `make help` for the list.
-.PHONY: help up down restart build logs ps migrate create-admin wipe fresh-start
+.PHONY: help up down restart build logs ps migrate create-admin build-basemap wipe fresh-start
 
 help:
 	@echo "make up            -- start the stack (builds images if needed)"
@@ -14,6 +14,7 @@ help:
 	@echo "make ps            -- show service status"
 	@echo "make migrate       -- apply any pending db migrations"
 	@echo "make create-admin EMAIL=you@example.org PASSWORD=... -- create/reset an admin account"
+	@echo "make build-basemap [FORCE=true] -- (re)build the self-hosted OSM basemap; \`make up\` already does this once automatically"
 	@echo "make wipe          -- DESTROYS all data (db + uploads + tiles) and stops the stack. Asks to confirm."
 	@echo "make fresh-start   -- wipe, then rebuild and bring the stack back up from empty. Asks to confirm."
 
@@ -53,6 +54,15 @@ create-admin:
 		exit 1; \
 	fi
 	docker compose exec api python -m app.create_admin "$(EMAIL)" "$(PASSWORD)"
+
+# `make up`/`make fresh-start` already run this once via docker-compose.yml's
+# own `basemap` service -- this target is for re-running it BY HAND (e.g. to
+# pick up a newer Protomaps daily build) without wiping/restarting anything
+# else. Bare `make build-basemap` is a harmless no-op if the object already
+# exists (see build_basemap.py's `_already_built`); pass FORCE=true to
+# actually re-extract and overwrite it: `make build-basemap FORCE=true`.
+build-basemap:
+	docker compose run --rm $(if $(FORCE),-e BASEMAP_FORCE_REBUILD=true,) basemap
 
 # `down -v` removes the named volumes docker-compose.yml declares for
 # Postgres/MinIO/Redis/Grafana/Prometheus -- every uploaded dataset, every

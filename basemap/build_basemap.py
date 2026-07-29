@@ -21,17 +21,47 @@ itself is generated client-side by the frontend (web/) using the
 script only produces the tile *data*.
 """
 import json
+import os
 import subprocess
 import tempfile
 import urllib.request
 
-from common import upload_file
+from botocore.exceptions import ClientError
+
+from common import get_s3_client, s3_config, upload_file
 
 BUILDS_MANIFEST_URL = "https://build-metadata.protomaps.dev/builds.json"
 # +/-85, not +/-90: Web Mercator (what these tiles are projected in) is
 # undefined at the poles: 85.0511 is the standard "full world" bound.
 WORLD_BBOX = "-180,-85,180,85"
 MAXZOOM = "8"
+DEST_KEY = "basemap/basemap.pmtiles"
+
+
+def _already_built() -> bool:
+    """This image runs as a normal one-shot compose service (like `migrate`),
+    which means `docker compose up` re-creates and re-runs it on every single
+    invocation, not just the very first `fresh-start` -- dbmate gets that for
+    free because applying an already-applied migration is a no-op, but a
+    fresh `pmtiles extract` against Protomaps' CDN has no such built-in
+    idempotency. Without this check, every `make up`/`make restart` would
+    silently redo a multi-hundred-MB range-request extraction that already
+    succeeded, which is slow and (for anyone metered on egress) not free.
+    `BASEMAP_FORCE_REBUILD=true` escapes this when a genuine refresh is
+    wanted (e.g. picking up a newer daily Protomaps build)."""
+    if os.environ.get("BASEMAP_FORCE_REBUILD", "").lower() == "true":
+        return False
+    client = get_s3_client()
+    try:
+        client.head_object(Bucket=s3_config()["bucket"], Key=DEST_KEY)
+        return True
+    except ClientError as exc:
+        # A bucket that doesn't exist yet (first-ever boot, before
+        # `ensure_bucket`-equivalent logic below runs) 404s the same as a
+        # missing key -- both mean "not built yet", not an error.
+        if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NoSuchBucket"):
+            return False
+        raise
 
 
 def latest_build_url() -> str:
@@ -48,6 +78,11 @@ def latest_build_url() -> str:
 
 
 def main():
+    if _already_built():
+        print(f"build_basemap: s3://.../{DEST_KEY} already exists -- skipping "
+              f"(set BASEMAP_FORCE_REBUILD=true to force a re-extract)")
+        return
+
     source_url = latest_build_url()
     print(f"build_basemap: extracting bbox={WORLD_BBOX} maxzoom={MAXZOOM} from {source_url}")
 
@@ -60,9 +95,8 @@ def main():
             ],
             check=True,
         )
-        dest_key = "basemap/basemap.pmtiles"
-        upload_file(output_path, dest_key, public_prefix="basemap/")
-        print(f"build_basemap: uploaded to s3://.../{dest_key}")
+        upload_file(output_path, DEST_KEY, public_prefix="basemap/")
+        print(f"build_basemap: uploaded to s3://.../{DEST_KEY}")
 
 
 if __name__ == "__main__":

@@ -15,15 +15,18 @@ or via `celery_app.send_task(...)` from anywhere that can reach Redis --
 there's no HTTP trigger endpoint yet (brief §16 adds one, gated by curator
 auth, once Horizon 2's upload flow exists).
 """
+import contextlib
 import json
+import os
 import subprocess
 import tempfile
+import zipfile
 
 from celery import chain
 from psycopg2.extras import execute_values
 
 from worker.celery_app import celery_app
-from worker.common import ensure_bucket, get_duckdb_conn, get_pg_conn, s3_uri, upload_file
+from worker.common import ensure_bucket, get_duckdb_conn, get_pg_conn, get_s3_client, s3_uri, upload_file
 from worker.seed_datasets import DATASET_META
 
 # DATASET_META moved to worker/seed_datasets.py (Phase 5, brief §17's
@@ -111,6 +114,70 @@ def _metadata_for(slug: str, pg) -> dict:
     return dict(row)
 
 
+# Which inner file each archive format must contain -- mirrors
+# app/routers/uploads.py's `_ARCHIVE_INNER_SUFFIX` exactly (that endpoint
+# already rejects an archive missing this member at upload time, so this is
+# a defense-in-depth re-check, not the primary gate).
+_ARCHIVE_INNER_SUFFIX = {".zip": ".shp", ".kmz": ".kml"}
+
+
+def _s3_uri_to_bucket_key(uri: str) -> tuple[str, str]:
+    """Splits `s3://bucket/key/with/slashes` back into its parts -- the
+    inverse of `s3_uri`. Needed only by `_resolved_source` below: every
+    other ingest step reads straight off the `s3://` URI via DuckDB's own
+    httpfs filesystem and never needs the bucket/key apart."""
+    without_scheme = uri.removeprefix("s3://")
+    bucket, _, key = without_scheme.partition("/")
+    return bucket, key
+
+
+@contextlib.contextmanager
+def _resolved_source(source_path: str):
+    """Yields the exact string to hand `ST_Read`.
+
+    Unchanged for every format DuckDB's own httpfs-backed S3 filesystem
+    already reads straight off `s3://...` -- geojson/gpkg/parquet, and KML
+    the same way (GDAL's KML driver takes a plain .kml over http(s)/s3 with
+    no chaining at all). A zipped Shapefile or KMZ (a zip containing one
+    .kml) needs GDAL's `/vsizip/` chaining instead, WITH an explicit inner
+    path -- `/vsizip/{archive}` alone only auto-detects a single-layer
+    archive when the target file sits at the zip's root, and silently fails
+    to find it if a curator zipped a containing folder instead (a common
+    mistake when zipping a Shapefile's sidecar files from a file manager
+    rather than from inside the folder) -- verified directly against this
+    repo's pinned duckdb==1.5.5 spatial build before relying on any of this.
+
+    Downloads the archive to a local temp file first rather than reaching
+    for GDAL's own S3 VSI handler (`/vsizip/vsis3/...`) at the s3:// URL
+    directly -- that handler needs its own separate AWS_*-env-var-based
+    credentials that GDAL reads independently of the s3_access_key_id/etc
+    DuckDB's httpfs extension is already configured with (get_duckdb_conn),
+    and wiring up a second, GDAL-flavored auth path just for this one format
+    is more moving parts than downloading the (curator-upload-sized, not
+    LandMark-bulk-sized) archive locally and reading it off disk -- already
+    proven to work identically to the remote case once GDAL has a `/vsizip/`
+    path, scheme aside.
+    """
+    ext = os.path.splitext(source_path)[1].lower()
+    inner_suffix = _ARCHIVE_INNER_SUFFIX.get(ext)
+    if inner_suffix is None:
+        yield source_path
+        return
+
+    bucket, key = _s3_uri_to_bucket_key(source_path)
+    fd, local_path = tempfile.mkstemp(suffix=ext)
+    os.close(fd)
+    try:
+        get_s3_client().download_file(bucket, key, local_path)
+        with zipfile.ZipFile(local_path) as zf:
+            member = next((n for n in zf.namelist() if n.lower().endswith(inner_suffix)), None)
+        if member is None:
+            raise ValueError(f"no {inner_suffix} file found inside the uploaded {ext} archive")
+        yield f"/vsizip/{local_path}/{member}"
+    finally:
+        os.remove(local_path)
+
+
 @celery_app.task(bind=True, soft_time_limit=3300, time_limit=3600)
 def ingest_task(self, source_path: str, slug: str):
     """Step 1: source file -> immutable GeoParquet in raw/, registry row
@@ -122,7 +189,8 @@ def ingest_task(self, source_path: str, slug: str):
     ensure_bucket()
     con = get_duckdb_conn()
 
-    con.execute(f"CREATE TABLE src AS SELECT * FROM ST_Read('{source_path}')")
+    with _resolved_source(source_path) as read_path:
+        con.execute(f"CREATE TABLE src AS SELECT * FROM ST_Read('{read_path}')")
     geom_col = next(c[1] for c in con.execute("PRAGMA table_info('src')").fetchall() if c[2].startswith("GEOMETRY"))
     if geom_col != "geom":
         con.execute(f'ALTER TABLE src RENAME COLUMN "{geom_col}" TO geom')

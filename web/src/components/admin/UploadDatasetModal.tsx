@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,9 +11,13 @@ import { useAdminAuth } from "../../lib/adminAuth";
 
 /** Mirrors uploads.py's `_ALLOWED_EXTENSIONS` -- kept here purely so the
  * file input's `accept` attribute steers curators away from a doomed
- * shapefile-zip/CSV upload before they even hit Submit. The backend is
- * still the real gate (this is just a UX nicety, not validation). */
-const ACCEPTED_EXTENSIONS = [".geojson", ".json", ".gpkg", ".parquet"];
+ * CSV/FlatGeobuf upload before they even hit Submit. The backend is
+ * still the real gate (this is just a UX nicety, not validation). A
+ * Shapefile is 3+ sidecar files (.shp/.shx/.dbf/.prj), never a single
+ * upload target -- `.zip` is how curators submit one here, and the
+ * backend requires the .shp to sit at the archive's root or a single
+ * subfolder (see the hint text below the file input). */
+const ACCEPTED_EXTENSIONS = [".geojson", ".json", ".gpkg", ".parquet", ".kml", ".zip", ".kmz"];
 
 /**
  * "Upload a new dataset" form (brief §16 step 1). Deliberately its own
@@ -55,6 +60,7 @@ export function UploadDatasetModal({
     setError(null);
     try {
       const result = await createUpload(token, file, name, description.trim() || undefined);
+      toast.success(`"${name}" uploaded -- validating now.`);
       onCreated(result);
     } catch (err) {
       // A 401 here means the token expired before the upload even started
@@ -67,7 +73,9 @@ export function UploadDatasetModal({
       // createUpload's catch already unwraps the backend's `detail` string
       // (e.g. "unsupported file type '.zip' -- ...", or a 409 slug
       // collision) -- shown verbatim since it's already curator-readable.
-      setError(err instanceof Error ? err.message : "Upload failed.");
+      const message = err instanceof Error ? err.message : "Upload failed.";
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -91,7 +99,11 @@ export function UploadDatasetModal({
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               className="h-auto py-1.5"
             />
-            <span className="text-xs text-muted-foreground">Accepted: {ACCEPTED_EXTENSIONS.join(", ")} only.</span>
+            <span className="text-xs text-muted-foreground">
+              Accepted: {ACCEPTED_EXTENSIONS.join(", ")} only. For a Shapefile, zip up the .shp/.shx/.dbf/.prj
+              files themselves (not a folder containing them) and upload the .zip; .kmz is a zipped .kml the
+              same way.
+            </span>
           </div>
 
           <div className="flex flex-col gap-1.5">

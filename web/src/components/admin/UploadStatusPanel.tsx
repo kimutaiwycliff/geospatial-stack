@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -135,7 +136,14 @@ export function UploadStatusPanel({
         if (cancelled) return;
         setStatus(next);
         onStatusChange({ tier_status: next.tier_status, serve_mode: next.serve_mode, validation_report: next.validation_report });
-        if (next.tier_status === "published") setAwaitingPublish(false);
+        if (next.tier_status === "published") {
+          setAwaitingPublish(false);
+          // `status` (not `next`) is the closure's PREVIOUS value -- this
+          // only fires once, on the actual raw/curated -> published
+          // transition this poll just observed, not on every subsequent
+          // poll of an already-published dataset.
+          if (status.tier_status !== "published") toast.success("Publish finished -- live on the public map.");
+        }
       } catch (err) {
         if (cancelled) return;
         if (err instanceof UnauthorizedError) {
@@ -165,6 +173,7 @@ export function UploadStatusPanel({
     try {
       await approveUpload(token, dataset.slug, "pmtiles");
       setAwaitingPublish(true);
+      toast.success("Publish requested -- building tiles now.");
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         logout();
@@ -174,7 +183,9 @@ export function UploadStatusPanel({
       // the "validation hasn't finished/failed" case -- but the Approve
       // button below is already hidden whenever that would happen, so in
       // practice this branch is really just network/5xx failures.
-      setApproveError(err instanceof Error ? err.message : "Could not approve.");
+      const message = err instanceof Error ? err.message : "Could not approve.";
+      setApproveError(message);
+      toast.error(message);
     } finally {
       setApproving(false);
     }

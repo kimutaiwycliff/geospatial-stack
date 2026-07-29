@@ -77,7 +77,20 @@ export const BASEMAP_PMTILES_URL = `pmtiles://${S3_BASE_URL}/${S3_BUCKET}/basema
  * the basemap.
  */
 export const BASEMAP_GLYPHS_URL = "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf";
-export const BASEMAP_SPRITE_URL = "https://protomaps.github.io/basemaps-assets/sprites/v4/light";
+
+/**
+ * Per-flavor icon sprite. Protomaps only publishes sprite sheets for the
+ * "light"/"dark" flavors (their own `generate_style` CLI -- see
+ * node_modules/@protomaps/basemaps/src/generate_style.ts -- only ever sets a
+ * sprite value for those two names too); "white"/"grayscale"/"black" have no
+ * sprite sheet of their own, so those flavors render with no POI icons
+ * rather than pointing at a 404. Returning `undefined` there (not the light
+ * sprite as a fallback) matches upstream's own behavior exactly.
+ */
+export function basemapSpriteUrl(flavor: string): string | undefined {
+  if (flavor !== "light" && flavor !== "dark") return undefined;
+  return `https://protomaps.github.io/basemaps-assets/sprites/v4/${flavor}`;
+}
 
 /**
  * FastAPI endpoints (brief §17/§6.2). No `/api` prefix here even though
@@ -127,6 +140,13 @@ export function loginUrl(): string {
  * datasetsUrl(), which the public map deliberately filters to "published". */
 export function adminDatasetsUrl(): string {
   return `${API_BASE_URL}/admin/datasets`;
+}
+
+/** One dataset by slug -- today only used for `DELETE`, but named for the
+ * resource (not the verb) in case a future admin-only single-dataset GET
+ * ever wants the same URL. */
+export function adminDatasetUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/datasets/${encodeURIComponent(slug)}`;
 }
 
 /** Partial-update governance fields for one dataset (brief §13). */

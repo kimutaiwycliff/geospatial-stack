@@ -1,6 +1,7 @@
 import {
   adminAuditLogUrl,
   adminDatasetGovernanceUrl,
+  adminDatasetUrl,
   adminDatasetsUrl,
   adminDraftStylesUrl,
   adminLayerPublishUrl,
@@ -357,6 +358,15 @@ export function updateGovernance(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
+}
+
+/** Deletes a dataset's registry row and everything its pipeline produced --
+ * raw/curated GeoParquet, tiles, an uploaded source file -- regardless of
+ * `tier_status` (raw/curated/published all delete the same way; see
+ * governance.py's `delete_dataset` for the full contract). There is no
+ * undo short of a backup restore. */
+export function deleteDataset(token: string, slug: string): Promise<{ slug: string; deleted: true }> {
+  return adminFetch(adminDatasetUrl(slug), token, { method: "DELETE" });
 }
 
 /** Every dataset's current draft style -- callers filter this down to one

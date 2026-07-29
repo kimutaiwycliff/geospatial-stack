@@ -13,12 +13,19 @@
  *                      default), so a plain bare `/map` URL doesn't grow a
  *                      long `layers=` param listing everything.
  *   country         -- selected country's ISO code, if any.
+ *   basemap         -- basemap flavor (light/dark/white/grayscale/black).
+ *                       Omitted entirely means "light" (the default), same
+ *                       omit-the-default convention as `layers`.
  */
 export interface MapUrlState {
   view: { center: [number, number]; zoom: number } | null;
   /** null = "no explicit layers param" (caller should default to all). */
   visibleSlugs: string[] | null;
   country: string | null;
+  /** Raw string, not `BasemapFlavor` -- this module deliberately has no
+   * dependency on basemapStyle.ts, so narrowing/validating an unrecognized
+   * value is the caller's job (see basemapStyle.ts's `asBasemapFlavor`). */
+  basemap: string | null;
 }
 
 export function parseMapUrlState(params: URLSearchParams): MapUrlState {
@@ -34,6 +41,7 @@ export function parseMapUrlState(params: URLSearchParams): MapUrlState {
     view: hasView ? { center: [lng, lat], zoom } : null,
     visibleSlugs: layersParam !== null ? layersParam.split(",").filter(Boolean) : null,
     country: params.get("country"),
+    basemap: params.get("basemap"),
   };
 }
 
@@ -51,6 +59,7 @@ export function buildMapUrlParams(state: {
   visibleSlugs: string[];
   allSlugs: string[];
   country: string | null;
+  basemap: string;
 }): URLSearchParams {
   const params = new URLSearchParams();
   params.set("lng", state.center[0].toFixed(5));
@@ -64,6 +73,10 @@ export function buildMapUrlParams(state: {
 
   if (state.country) {
     params.set("country", state.country);
+  }
+
+  if (state.basemap !== "light") {
+    params.set("basemap", state.basemap);
   }
 
   return params;

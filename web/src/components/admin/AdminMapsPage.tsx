@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ export function AdminMapsPage() {
     setCreateError(null);
     try {
       const map = await createMap(authToken, { name: newName });
+      toast.success(`"${map.name}" created.`);
       // Straight to the editor -- there's nothing else worth showing on
       // this list page for a brand-new, all-defaults draft map.
       navigate(`/admin/maps/${map.slug}`);
@@ -80,7 +82,9 @@ export function AdminMapsPage() {
       // 409 (slug collision) is the one expected failure here -- adminFetch
       // only gives a generic "HTTP 409" message, but that's still enough
       // context for a curator to know to pick a different name.
-      setCreateError(err instanceof Error ? err.message : "Could not create map.");
+      const message = err instanceof Error ? err.message : "Could not create map.";
+      setCreateError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }

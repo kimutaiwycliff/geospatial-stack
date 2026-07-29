@@ -8,16 +8,22 @@ then dispatch the publish chain (`run_publish_pipeline`) on explicit
 approval.
 
 Format support is intentionally narrower than the brief's full list
-(Shapefile zip / GeoJSON / GPKG / GeoParquet / CSV+geom): DuckDB's ST_Read
-takes GeoJSON/GPKG/GeoParquet directly from an S3 URI with zero extra
-plumbing (same as every engineer-triggered ingest so far); a zipped
-Shapefile needs GDAL's /vsizip/ chaining and CSV+geom needs a geometry-
-column-detection step, neither of which exists yet. Curators uploading
-those get a clear 400 telling them so, not a confusing worker-side failure
-three steps into a chain they can't see into.
+(Shapefile zip / GeoJSON / GPKG / GeoParquet / CSV+geom / KML): DuckDB's
+ST_Read takes GeoJSON/GPKG/GeoParquet directly from an S3 URI with zero
+extra plumbing (same as every engineer-triggered ingest so far), and KML
+the exact same way (GDAL's KML driver reads a plain .kml over http(s)/s3
+with no chaining needed -- verified directly against this repo's pinned
+duckdb==1.5.5 spatial build before relying on it here). A zipped Shapefile
+(or KMZ, which is just a zip containing one .kml) needs GDAL's `/vsizip/`
+chaining instead -- see ingest_task's `_resolved_source` in worker/tasks.py
+for that. CSV+geom needs a geometry-column-detection step that doesn't
+exist yet, so that one still gets a clear 400 rather than a confusing
+worker-side failure three steps into a chain the curator can't see into.
 """
+import io
 import os
 import tempfile
+import zipfile
 
 from app.auth.dependencies import require_admin
 from app.db import get_connection
@@ -39,9 +45,23 @@ router = APIRouter(prefix="/admin/uploads", tags=["uploads"])
 # worker.common has no such import-time env read, so it stays a normal
 # top-level import above.
 
-# DuckDB ST_Read handles these straight off an s3:// URI (brief §16 step 1,
-# scoped down per this module's docstring above).
-_ALLOWED_EXTENSIONS = {".geojson", ".json", ".gpkg", ".parquet"}
+# DuckDB ST_Read handles geojson/json/gpkg/parquet/kml straight off an s3://
+# URI with no extra work (brief §16 step 1); .zip/.kmz need the archive
+# member -- checked for below, and later re-derived by ingest_task itself to
+# build the actual `/vsizip/...` read path (see worker/tasks.py).
+_ALLOWED_EXTENSIONS = {".geojson", ".json", ".gpkg", ".parquet", ".kml", ".zip", ".kmz"}
+
+# Which inner file each archive format must contain -- a zip with no .shp
+# (or a kmz with no .kml) is a curator mistake worth a clear 400 right here,
+# rather than a worker-side `ST_Read` failure on a path that was never going
+# to resolve to anything (see ingest_task's identical suffix-search, which
+# trusts this check already ran and only needs to find the SAME member
+# again to build its explicit `/vsizip/archive.zip/inner/path` read path --
+# GDAL's own vsizip auto-detection only finds a single-layer archive when
+# the target file sits at the zip's root, not inside a subfolder, which is
+# a common mistake when zipping a Shapefile's sidecar files from a file
+# manager rather than `zip file.zip *.shp *.dbf ...` from inside the folder).
+_ARCHIVE_INNER_SUFFIX = {".zip": ".shp", ".kmz": ".kml"}
 
 
 @router.post("")
@@ -63,6 +83,25 @@ async def create_upload(
             status_code=400,
             detail=f"unsupported file type '{ext}' -- self-service upload accepts {sorted(_ALLOWED_EXTENSIONS)}",
         )
+
+    # Read once, up front -- both the archive-content check right below and
+    # the S3 upload further down need the actual bytes, and `UploadFile` is a
+    # single-read stream (reading it twice without seeking back to 0 would
+    # just return empty the second time).
+    content = await file.read()
+
+    inner_suffix = _ARCHIVE_INNER_SUFFIX.get(ext)
+    if inner_suffix is not None:
+        try:
+            with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                has_member = any(n.lower().endswith(inner_suffix) for n in zf.namelist())
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail=f"'{file.filename}' is not a valid {ext} archive")
+        if not has_member:
+            raise HTTPException(
+                status_code=400,
+                detail=f"no {inner_suffix} file found inside the uploaded {ext} archive",
+            )
 
     try:
         slug = slugify(name)
@@ -98,7 +137,6 @@ async def create_upload(
     # raw/curated).
     upload_key = f"uploads/{slug}/{file.filename}"
     with tempfile.NamedTemporaryFile(suffix=ext) as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp.flush()
         upload_file(tmp.name, upload_key)

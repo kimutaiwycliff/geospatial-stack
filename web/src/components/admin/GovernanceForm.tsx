@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,6 +89,7 @@ export function GovernanceForm({ token, dataset, onSaved }: { token: string; dat
       await updateGovernance(token, dataset.slug, patch);
       setLoaded(values);
       setMessage({ kind: "success", text: "Governance updated." });
+      toast.success("Governance updated.");
       onSaved(patch);
     } catch (err) {
       // A 401 here means the token expired/was revoked mid-session --
@@ -99,6 +101,7 @@ export function GovernanceForm({ token, dataset, onSaved }: { token: string; dat
         return;
       }
       setMessage({ kind: "error", text: "Could not save changes." });
+      toast.error("Could not save changes.");
     } finally {
       setSaving(false);
     }

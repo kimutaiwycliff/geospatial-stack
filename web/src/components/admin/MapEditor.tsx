@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import {
   MAP_CONTROL_LABELS,
   type MapControlsConfig,
 } from "../../lib/mapControls";
+import { asBasemapFlavor, BASEMAP_FLAVORS, BASEMAP_FLAVOR_LABELS } from "../../lib/basemapStyle";
 
 /** Success-state Alert styling -- same convention as UploadStatusPanel's
  * SUCCESS_ALERT_CLASS (Alert has no built-in "success" variant). Both the
@@ -46,6 +48,7 @@ interface EditableFields {
   name: string;
   description: string;
   layers_json: MapLayer[];
+  basemap: string;
   default_extent: { center: [number, number]; zoom: number } | null;
   controls_json: MapControlsConfig;
 }
@@ -55,6 +58,12 @@ function fieldsOf(map: AdminMapDetail): EditableFields {
     name: map.name,
     description: map.description ?? "",
     layers_json: map.layers_json,
+    // Narrowed through asBasemapFlavor rather than trusted as-is -- a map
+    // row saved before this picker existed already defaults to "light" (the
+    // migration's own column default), but this guards against any
+    // hand-edited/otherwise-stale value the same way the public map side
+    // does (see basemapStyle.ts's asBasemapFlavor).
+    basemap: asBasemapFlavor(map.basemap),
     default_extent: map.default_extent,
     // Falls back to the same default the migration's own column default
     // gives a brand-new row -- belt-and-suspenders in case a map row ever
@@ -75,6 +84,7 @@ function buildPatch(loaded: EditableFields, current: EditableFields): MapUpdateP
   const patch: MapUpdatePatch = {};
   if (loaded.name !== current.name) patch.name = current.name;
   if (loaded.description !== current.description) patch.description = current.description;
+  if (loaded.basemap !== current.basemap) patch.basemap = current.basemap;
   if (JSON.stringify(loaded.layers_json) !== JSON.stringify(current.layers_json)) patch.layers_json = current.layers_json;
   if (JSON.stringify(loaded.default_extent) !== JSON.stringify(current.default_extent)) patch.default_extent = current.default_extent;
   if (JSON.stringify(loaded.controls_json) !== JSON.stringify(current.controls_json)) patch.controls_json = current.controls_json;
@@ -201,12 +211,15 @@ export function MapEditor() {
       setMap(updated);
       setLoaded(fieldsOf(updated));
       setMessage({ kind: "success", text: "Saved." });
+      toast.success("Map saved.");
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         logout();
         return;
       }
-      setMessage({ kind: "error", text: err instanceof Error ? err.message : "Could not save changes." });
+      const text = err instanceof Error ? err.message : "Could not save changes.";
+      setMessage({ kind: "error", text });
+      toast.error(text);
     } finally {
       setSaving(false);
     }
@@ -220,12 +233,14 @@ export function MapEditor() {
       const updated = await publishMap(authToken, slug);
       setMap(updated);
       setMessage({ kind: "success", text: "Published." });
+      toast.success("Map published.");
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         logout();
         return;
       }
       setMessage({ kind: "error", text: "Could not publish." });
+      toast.error("Could not publish.");
     } finally {
       setPublishing(false);
     }
@@ -298,12 +313,23 @@ export function MapEditor() {
           />
         </div>
 
-        <div className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-foreground">Basemap</span>
-          {/* Read-only: "light" is the only style @protomaps/basemaps is
-              wired up with today (see basemapStyle.ts) -- a picker with one
-              option is worse UX than just stating the fact. */}
-          <span className="text-muted-foreground">{map.basemap} (only basemap available)</span>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="map-basemap">Basemap</Label>
+          <Select
+            value={values.basemap}
+            onValueChange={(value) => setValues((prev) => (prev ? { ...prev, basemap: value } : prev))}
+          >
+            <SelectTrigger id="map-basemap" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BASEMAP_FLAVORS.map((flavor) => (
+                <SelectItem key={flavor} value={flavor}>
+                  {BASEMAP_FLAVOR_LABELS[flavor]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="flex flex-col gap-2 text-sm">

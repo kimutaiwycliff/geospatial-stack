@@ -133,6 +133,16 @@ export function AdminDashboard() {
     setDatasets((prev) => prev.map((d) => (d.slug === slug ? { ...d, ...patch } : d)));
   }
 
+  // Deletion's completion handler: drop the row from local state (no
+  // re-fetch needed -- the backend already confirmed it's gone) and clear
+  // the selection, since DatasetDetail is keyed on `selected.slug` and is
+  // about to have nothing left to render for the dataset that just
+  // disappeared.
+  function handleDatasetDeleted(slug: string) {
+    setDatasets((prev) => prev.filter((d) => d.slug !== slug));
+    setSelectedSlug((prev) => (prev === slug ? null : prev));
+  }
+
   function applyDraftSaved(next: DraftStyle) {
     setDraftStyles((prev) => {
       const others = prev.filter((d) => d.slug !== next.slug);
@@ -253,6 +263,7 @@ export function AdminDashboard() {
             onGovernanceSaved={(patch) => applyDatasetPatch(selected.slug, patch)}
             onDraftSaved={applyDraftSaved}
             onDatasetPatch={(patch) => applyDatasetPatch(selected.slug, patch)}
+            onDeleted={() => handleDatasetDeleted(selected.slug)}
           />
         )}
       </div>

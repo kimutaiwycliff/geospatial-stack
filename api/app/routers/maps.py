@@ -38,20 +38,22 @@ class MapLayer(BaseModel):
     style_ref: Literal["published"] = "published"
 
 
-# The 7 controls genuinely native to MapLibre GL JS, plus 4 more
-# (search/measure/minimap/gridlines) hand-built client-side with no API key
-# or heavy dependency (see web/src/lib/controls/*) -- researched against
+# The 7 controls genuinely native to MapLibre GL JS, plus 9 more hand-built
+# client-side with no API key or heavy dependency (see web/src/lib/
+# controls/*): search/measure/minimap/gridlines, and (a later follow-up)
+# compass/spinning-globe/atmosphere/bookmark/legend -- researched against
 # GeoLibre (brief §14), whose own "Map controls" menu lists ~24 items.
-# Everything past these 11 (Directions, Reverse Geocode, Weather, Route
-# Animation, Flight Simulator, Sun, Atmospheric Effects, Spinning Globe,
-# Colorbar, Legend, HTML, Bookmark) is either a separately-scoped feature or
-# depends on an external paid/keyed service -- out of scope. Frozen as a
-# real allowlist (not just a TypedDict) so a typo'd or made-up control id in
-# a PUT body 400s immediately instead of silently being stored and then
-# ignored by the frontend's renderer.
+# Everything past these 16 (Terrain, Weather, Route Animation, Flight
+# Simulator, Directions, Reverse Geocode, Colorbar) needs a self-hosted
+# elevation/routing/geocoding dataset, an external paid/keyed API, or
+# choropleth styling support this app doesn't have yet -- out of scope.
+# Frozen as a real allowlist (not just a TypedDict) so a typo'd or made-up
+# control id in a PUT body 400s immediately instead of silently being
+# stored and then ignored by the frontend's renderer.
 _KNOWN_CONTROLS = {
     "navigation", "fullscreen", "geolocate", "globe", "scale", "attribution", "logo",
     "search", "measure", "minimap", "gridlines",
+    "compass", "spinning-globe", "atmosphere", "bookmark", "legend",
 }
 
 

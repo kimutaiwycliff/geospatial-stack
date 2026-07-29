@@ -30,11 +30,12 @@ defaults, roadmap) this was built against.
   defaulting to the most protective option), editable from the admin UI,
   with a full audit trail of who changed what and when.
 - **Map authoring** — compose a named, curated map from a subset of
-  published layers, set a default view and basemap style, choose which
-  MapLibre controls it shows (navigation, geolocate, a place-search box, a
-  measure tool, a minimap, lat/lon gridlines — each toggleable and
-  positionable per map), publish it, and share it via its own public URL
-  (`/m/<slug>`).
+  published layers, set a default view and basemap style, choose which of
+  16 MapLibre controls it shows (navigation, compass, geolocate, a
+  place-search box, a measure tool, a minimap, lat/lon gridlines, an
+  auto-rotating spinning globe, atmospheric effects, saved-view bookmarks,
+  an auto-generated legend, and more — each toggleable and positionable per
+  map), publish it, and share it via its own public URL (`/m/<slug>`).
 - **Self-hosted basemap, 5 switchable styles** — a world OSM basemap
   (`@protomaps/basemaps`, no external API key) is built and uploaded
   automatically the first time the stack starts (see `basemap` in

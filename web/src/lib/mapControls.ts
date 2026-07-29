@@ -9,25 +9,29 @@ import {
   type IControl,
   type Map as MapLibreMap,
 } from "maplibre-gl";
+import { createAtmosphereControl } from "./controls/atmosphereControl";
+import { createBookmarkControl } from "./controls/bookmarkControl";
 import { createGraticuleControl } from "./controls/graticuleControl";
+import { createLegendControl } from "./controls/legendControl";
 import { createMeasureControl } from "./controls/measureControl";
 import { createMinimapControl } from "./controls/minimapControl";
 import { createSearchControl } from "./controls/searchControl";
+import { createSpinningGlobeControl } from "./controls/spinningGlobeControl";
 
 /**
- * The 7 controls genuinely native to MapLibre GL JS itself, PLUS 4 more
- * (search/measure/minimap/gridlines) that are real GeoLibre menu items but
- * NOT MapLibre built-ins -- researched against GeoLibre's own source
- * (brief §14): those 4 are hand-rolled here (src/lib/controls/*), each a
- * small, self-contained `IControl`, since no single popular npm package
- * covers this exact set the way GeoLibre's own proprietary
- * `maplibre-gl-components` bundle does. Everything else in GeoLibre's menu
- * (Directions, Reverse Geocode, Weather, Route Animation, Flight
- * Simulator, Sun, Atmospheric Effects, Spinning Globe, Colorbar, Legend,
- * HTML, Bookmark) is still out of scope -- each is either a genuinely
- * separate multi-day feature or depends on an external paid/keyed service,
- * not a config toggle (see the research this session did for the reasoning
- * behind that line).
+ * The 7 controls genuinely native to MapLibre GL JS itself, PLUS 9 more
+ * that are real GeoLibre menu items but NOT MapLibre built-ins --
+ * researched against GeoLibre's own source (brief §14): search/measure/
+ * minimap/gridlines, and (a later follow-up) compass/spinning-globe/
+ * atmosphere/bookmark/legend. All 9 are hand-rolled here (src/lib/
+ * controls/*), each a small, self-contained `IControl`, since no single
+ * popular npm package covers this exact set the way GeoLibre's own
+ * proprietary `maplibre-gl-components` bundle does. Everything else left
+ * in GeoLibre's menu (Terrain, Weather, Route Animation, Flight Simulator,
+ * Directions, Reverse Geocode, Colorbar) is still out of scope -- each
+ * needs a self-hosted elevation/routing/geocoding dataset, an external
+ * paid/keyed API, or choropleth styling support this app doesn't have yet,
+ * not just a config toggle.
  */
 export const MAP_CONTROL_IDS = [
   "navigation",
@@ -41,14 +45,20 @@ export const MAP_CONTROL_IDS = [
   "measure",
   "minimap",
   "gridlines",
+  "compass",
+  "spinning-globe",
+  "atmosphere",
+  "bookmark",
+  "legend",
 ] as const;
 export type MapControlId = (typeof MAP_CONTROL_IDS)[number];
 
-/** "gridlines" has no on-map corner widget (see graticuleControl.ts) --
+/** "gridlines"/"spinning-globe"/"atmosphere" have no on-map corner widget
+ * (see graticuleControl.ts/spinningGlobeControl.ts/atmosphereControl.ts) --
  * MapEditor.tsx uses this to skip rendering a meaningless position picker
- * for it, the same way GeoLibre's own menu has no position submenu for its
- * non-corner items. */
-export const CONTROLS_WITHOUT_POSITION = new Set<MapControlId>(["gridlines"]);
+ * for them, the same way GeoLibre's own menu has no position submenu for
+ * its non-corner items. */
+export const CONTROLS_WITHOUT_POSITION = new Set<MapControlId>(["gridlines", "spinning-globe", "atmosphere"]);
 
 export type ControlPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
@@ -71,6 +81,11 @@ export const MAP_CONTROL_LABELS: Record<MapControlId, string> = {
   measure: "Measure distance / area",
   minimap: "Minimap",
   gridlines: "Gridlines",
+  compass: "Compass",
+  "spinning-globe": "Spinning globe",
+  atmosphere: "Atmospheric effects",
+  bookmark: "Bookmarks (saved views)",
+  legend: "Legend",
 };
 
 export const CONTROL_POSITIONS: ControlPosition[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
@@ -94,6 +109,11 @@ export const DEFAULT_MAP_CONTROLS: Record<MapControlId, MapControlConfig> = {
   // Position is stored for schema uniformity but ignored at render time --
   // see CONTROLS_WITHOUT_POSITION above.
   gridlines: { enabled: false, position: "top-right" },
+  compass: { enabled: false, position: "top-right" },
+  "spinning-globe": { enabled: false, position: "top-right" },
+  atmosphere: { enabled: false, position: "top-right" },
+  bookmark: { enabled: false, position: "top-left" },
+  legend: { enabled: false, position: "bottom-left" },
 };
 
 /** One constructor per control id -- a plain function (not `new` inline in
@@ -102,7 +122,12 @@ export const DEFAULT_MAP_CONTROLS: Record<MapControlId, MapControlConfig> = {
  * `addControl`, `removeControl` tears that binding down and the instance
  * isn't meant to be re-added). */
 const CONTROL_FACTORIES: Record<MapControlId, () => IControl> = {
-  navigation: () => new NavigationControl(),
+  // showCompass: false -- `compass` below is its own separate, independently
+  // toggleable/positionable control (matching GeoLibre's own menu, which
+  // lists Navigation and Compass as two distinct items), so this stays
+  // zoom-buttons-only to avoid ending up with two compass widgets when both
+  // are enabled at once.
+  navigation: () => new NavigationControl({ showCompass: false, showZoom: true }),
   fullscreen: () => new FullscreenControl(),
   geolocate: () => new GeolocateControl({ trackUserLocation: true, positionOptions: { enableHighAccuracy: true } }),
   globe: () => new GlobeControl(),
@@ -113,6 +138,11 @@ const CONTROL_FACTORIES: Record<MapControlId, () => IControl> = {
   measure: () => createMeasureControl(),
   minimap: () => createMinimapControl(),
   gridlines: () => createGraticuleControl(),
+  compass: () => new NavigationControl({ showCompass: true, showZoom: false, visualizePitch: true }),
+  "spinning-globe": () => createSpinningGlobeControl(),
+  atmosphere: () => createAtmosphereControl(),
+  bookmark: () => createBookmarkControl(),
+  legend: () => createLegendControl(),
 };
 
 /**

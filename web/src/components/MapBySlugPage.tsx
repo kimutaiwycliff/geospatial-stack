@@ -44,29 +44,55 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
 }
 
-/** Shared by both the click popup and the hover tooltip -- the same
+/**
+ * Shared by both the click popup and the hover tooltip -- the same
  * "picked fields, or the old name-only fallback" content, styled with the
  * layer's `popup.style` either way (hover has no style of its own, see
  * maps.py's `LayerHoverConfig` docstring). `fields` empty means "nobody
  * configured this yet" -- falls back to the single `name` property (or
  * "Feature") this app showed unconditionally before per-layer popups
  * existed, so an un-configured Map doesn't go from "shows something" to
- * "shows nothing" the moment this feature shipped. */
-function buildFeatureHtml(properties: Record<string, unknown>, fields: string[], style: PopupStyle, footer?: string): string {
-  const rows =
-    fields.length > 0
-      ? fields
-          .map((field) => `<div><strong>${escapeHtml(field)}:</strong> ${escapeHtml(String(properties[field] ?? ""))}</div>`)
-          .join("")
-      : `<div><strong>${escapeHtml(String(properties.name ?? "Feature"))}</strong></div>`;
-  const footerHtml = footer
-    ? `<div style="opacity:0.7;font-size:${Math.max(style.font_size - 2, 10)}px;margin-top:4px;">${escapeHtml(footer)}</div>`
-    : "";
-  return (
-    `<div style="background:${style.background_color};color:${style.text_color};` +
+ * "shows nothing" the moment this feature shipped.
+ *
+ * Deliberately does NOT show the dataset's own name anywhere -- a curator
+ * looking at a feature already knows what layer they clicked (they chose
+ * which layers to enable), and it just added noise to every popup.
+ *
+ * Each field renders as its own row (small uppercase label above the
+ * value, a hairline divider between rows) rather than inline "Field:
+ * value" text -- reads like a real feature-inspector card instead of a
+ * loose stack of labeled sentences. The OUTER MapLibre `Popup`/tip chrome
+ * is hidden via the `map-feature-popup` CSS class (see this page's own
+ * `<style>` block) so this div's own background/border/shadow is the
+ * only visible chrome -- without that override, MapLibre's default white
+ * popup box shows through around this one, a double-boxed look.
+ */
+function buildFeatureHtml(properties: Record<string, unknown>, fields: string[], style: PopupStyle): string {
+  const cardStyle =
+    `background:${style.background_color};color:${style.text_color};` +
     `border:1px solid ${style.border_color};border-radius:${style.border_radius}px;` +
-    `font-size:${style.font_size}px;padding:8px 10px;">${rows}${footerHtml}</div>`
-  );
+    `font-size:${style.font_size}px;box-shadow:0 6px 20px rgba(0,0,0,0.18);` +
+    `min-width:140px;max-width:260px;overflow:hidden;`;
+
+  if (fields.length === 0) {
+    const name = escapeHtml(String(properties.name ?? "Feature"));
+    return `<div style="${cardStyle}"><div style="padding:10px 12px;font-weight:600;">${name}</div></div>`;
+  }
+
+  const labelSize = Math.max(style.font_size - 3, 9);
+  const rows = fields
+    .map((field, i) => {
+      const value = escapeHtml(String(properties[field] ?? "—"));
+      const divider = i > 0 ? `border-top:1px solid ${style.border_color};` : "";
+      return (
+        `<div style="padding:7px 12px;${divider}">` +
+        `<div style="font-size:${labelSize}px;text-transform:uppercase;letter-spacing:0.04em;opacity:0.65;">${escapeHtml(field)}</div>` +
+        `<div style="margin-top:2px;line-height:1.3;">${value}</div>` +
+        `</div>`
+      );
+    })
+    .join("");
+  return `<div style="${cardStyle}">${rows}</div>`;
 }
 
 /**
@@ -222,9 +248,9 @@ export function MapBySlugPage() {
         }
 
         if (entry.layer.popup.enabled) {
-          new Popup({ closeButton: true })
+          new Popup({ closeButton: true, className: "map-feature-popup" })
             .setLngLat(e.lngLat)
-            .setHTML(buildFeatureHtml(feature.properties ?? {}, entry.layer.popup.fields, entry.layer.popup.style, entry.dataset.name))
+            .setHTML(buildFeatureHtml(feature.properties ?? {}, entry.layer.popup.fields, entry.layer.popup.style))
             .addTo(map);
         }
       });
@@ -249,7 +275,7 @@ export function MapBySlugPage() {
           hoverPopup = null;
           return;
         }
-        hoverPopup ??= new Popup({ closeButton: false, closeOnClick: false });
+        hoverPopup ??= new Popup({ closeButton: false, closeOnClick: false, className: "map-feature-popup map-feature-hover" });
         hoverPopup
           .setLngLat(e.lngLat)
           .setHTML(buildFeatureHtml(feature.properties ?? {}, hover.fields, entry.layer.popup.style))
@@ -324,7 +350,18 @@ export function MapBySlugPage() {
           this page's own class -- MapView.tsx's main explorer map has no
           such title card, so its top-left controls shouldn't be pushed
           down for no reason. */}
-      <style>{`.map-by-slug-page .maplibregl-ctrl-top-left { margin-top: 4.5rem; }`}</style>
+      <style>{`
+        .map-by-slug-page .maplibregl-ctrl-top-left { margin-top: 4.5rem; }
+        /* Strips MapLibre's own white popup box/arrow so only
+           buildFeatureHtml's own styled card shows -- otherwise the
+           default chrome renders AROUND our card, a double-boxed look. */
+        .map-feature-popup .maplibregl-popup-content { padding: 0; background: transparent; box-shadow: none; }
+        .map-feature-popup .maplibregl-popup-tip { display: none; }
+        /* Hover tooltips shouldn't intercept the pointer -- without this,
+           the tooltip card itself can end up under the cursor and briefly
+           block the next mousemove's hit-test against the map canvas. */
+        .map-feature-hover { pointer-events: none; }
+      `}</style>
       {/* Info card in the corner -- a great fit for shadcn `Card` (brief):
           it's a genuinely floating, self-contained piece of chrome over the
           map, not a full-height pane, so Card's rounded/ring/padding model

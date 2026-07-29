@@ -1,28 +1,47 @@
-// Phase-1 dev-only endpoint constants.
+// Endpoint bases -- environment-aware since a real bug report (admin login
+// silently failing with zero network requests, once caddy/Caddyfile grew a
+// CSP header) showed the "swap it for relative paths once deployed behind
+// Caddy" note below had never actually been done.
 //
-// WHY hardcoded absolute URLs instead of a Vite proxy or env vars: the build
-// brief's real routing layer is Caddy, which will front Martin/the API/MinIO
-// behind one origin once the whole compose stack (incl. `web`) runs together
-// (see /caddy/Caddyfile). Until then, `docker-compose.override.yml` exposes
-// each service's port straight to the host for local development, so the
-// dev server (this Vite app, running OUTSIDE Docker on the host) can just
-// hit them directly. This file is the one place that shortcut lives --
-// swap it for relative paths (`/tiles`, `/api`, `/objects`) once the app is
-// deployed as the `web` service behind Caddy; no other file should hardcode
-// a port. (Carried over unchanged from Phase 0 -- see git history for that
-// version's fuller rationale.)
+// WHY two modes instead of one hardcoded set of URLs: `import.meta.env.DEV`
+// is true only under Vite's own dev server (`npm run dev`, running OUTSIDE
+// Docker on the host) -- there, `docker-compose.override.yml` exposes each
+// service's port straight to the host, so hitting Martin/the API/MinIO
+// directly by port is the simplest thing that works, and is what every URL
+// here used to do unconditionally. But the BUILT app (`vite build`, served
+// by the `web` nginx container behind Caddy -- i.e. every real `docker
+// compose up` deployment, not just Vite dev) has never been behind that
+// same host-port-mapping: from a browser hitting Caddy's origin (e.g.
+// localhost:8080), `http://localhost:8000` is a DIFFERENT origin entirely
+// (different port). That always relied on CORS + the override file's port
+// exposure to limp along; adding caddy/Caddyfile's CSP (`connect-src 'self'
+// https:`) finally made the browser refuse the cross-origin, non-HTTPS
+// fetch outright -- blocked client-side before any request is even sent,
+// which is why devtools showed no network activity at all. The real fix is
+// what this file's own comment always said to do: relative paths in
+// production, which Caddy's own `handle_path /api/*` `/tiles/*` `/objects/*`
+// blocks (see /caddy/Caddyfile) already route correctly -- and are
+// automatically same-origin, so the CSP no longer has anything to block.
+const isDev = import.meta.env.DEV;
 
-/** Martin's tile server, reached directly (dev only -- see file header). */
-const MARTIN_BASE_URL = "http://localhost:3000";
+/** Martin's tile server -- direct-by-port only in Vite dev (see file
+ * header); in a built app, Caddy's `handle_path /tiles/*` strips this
+ * prefix and forwards to martin:3000 (docker-compose.yml). */
+const MARTIN_BASE_URL = isDev ? "http://localhost:3000" : "/tiles";
 
-/** MinIO's S3 API, reached directly (dev only -- see file header). */
-const S3_BASE_URL = "http://localhost:9000";
+/** MinIO's S3 API -- direct-by-port only in Vite dev. In a built app,
+ * Caddy's `handle_path /objects/*` rewrites to `/geoplatform/<uri>` and
+ * forwards to storage:9000 -- the bucket name is Caddy's job to insert,
+ * NOT this file's, which is why `pmtilesUrlFor`/`BASEMAP_PMTILES_URL`
+ * below only splice in `S3_BUCKET` for the dev-direct case. */
+const S3_BASE_URL = isDev ? "http://localhost:9000" : "/objects";
 
 /** Bucket name -- matches .env.example's S3_BUCKET (also "geoplatform" if R2 vars are swapped in later). */
 const S3_BUCKET = "geoplatform";
 
-/** FastAPI, reached directly (dev only -- see file header). */
-const API_BASE_URL = "http://localhost:8000";
+/** FastAPI -- direct-by-port only in Vite dev; in a built app, Caddy's
+ * `handle_path /api/*` strips this prefix and forwards to api:8000. */
+const API_BASE_URL = isDev ? "http://localhost:8000" : "/api";
 
 /**
  * Martin's per-table tile URL. The dataset registry never stores a Martin
@@ -38,6 +57,20 @@ export function martinTileUrl(slug: string): string {
 }
 
 /**
+ * Object-storage URL for a key under the bucket. Dev mode hits MinIO
+ * directly, so the bucket name must be explicit in the path; a built app
+ * goes through Caddy's `/objects/*` rewrite (see S3_BASE_URL above), which
+ * already inserts the bucket name server-side -- repeating it client-side
+ * there would 404 (double bucket segment). Prefixed with
+ * `window.location.origin` rather than left as a bare relative path so the
+ * `pmtiles://` protocol handler below always gets a real, unambiguous
+ * absolute URL, matching the shape it's always received in dev mode.
+ */
+function objectUrl(key: string): string {
+  return isDev ? `${S3_BASE_URL}/${S3_BUCKET}/${key}` : `${window.location.origin}${S3_BASE_URL}/${key}`;
+}
+
+/**
  * Static PMTiles archive in MinIO for a given dataset slug. Uses the
  * `pmtiles://` protocol prefix (registered in src/main.tsx via
  * maplibregl.addProtocol) wrapping a plain HTTP(S) URL -- the pmtiles JS
@@ -46,7 +79,7 @@ export function martinTileUrl(slug: string): string {
  * (`tiles/<slug>.pmtiles`) exactly.
  */
 export function pmtilesUrlFor(slug: string): string {
-  return `pmtiles://${S3_BASE_URL}/${S3_BUCKET}/tiles/${slug}.pmtiles`;
+  return `pmtiles://${objectUrl(`tiles/${slug}.pmtiles`)}`;
 }
 
 /**
@@ -64,7 +97,7 @@ export function tableNameFor(slug: string): string {
  * same way as any dataset's PMTiles archive: a bare MinIO URL behind the
  * pmtiles:// protocol, range-requested client-side, no tile server involved.
  */
-export const BASEMAP_PMTILES_URL = `pmtiles://${S3_BASE_URL}/${S3_BUCKET}/basemap/basemap.pmtiles`;
+export const BASEMAP_PMTILES_URL = `pmtiles://${objectUrl("basemap/basemap.pmtiles")}`;
 
 /**
  * Font glyphs + icon sprite for the @protomaps/basemaps style. These are

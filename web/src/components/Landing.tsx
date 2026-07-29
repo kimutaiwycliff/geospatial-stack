@@ -129,8 +129,14 @@ export function Landing() {
             styling, and governance -- so you can go from raw file to a shareable, interactive map without writing a
             line of code.
           </p>
-          <Link to="/map" className={buttonVariants({ variant: "default", size: "lg" })}>
-            Explore the map
+          {/* Routes into the admin side, not the public /map explorer --
+              `/admin` is already wrapped in <RequireAdmin> (App.tsx), which
+              bounces an unauthenticated visitor straight to /admin/login,
+              so no separate auth check is needed here: this one link
+              covers "already signed in -> dashboard" and "not signed in ->
+              login" for free. */}
+          <Link to="/admin" className={buttonVariants({ variant: "default", size: "lg" })}>
+            Enter the platform
           </Link>
         </div>
 

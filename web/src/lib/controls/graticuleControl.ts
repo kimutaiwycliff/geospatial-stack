@@ -1,4 +1,5 @@
 import type { GeoJSONSource, IControl, Map as MapLibreMap } from "maplibre-gl";
+import { DEFAULT_GRIDLINES_CONFIG, type GridlinesConfig } from "../adminApi";
 
 /** [maxZoom, intervalDegrees] bands, checked in order -- coarser grid at
  * low zoom (world view), finer as you zoom in, without redrawing on every
@@ -44,7 +45,13 @@ const LAYER_ID = "graticule-layer";
  * MapEditor.tsx deliberately skips rendering a position picker for this
  * one control id.
  */
-export function createGraticuleControl(): IControl {
+/**
+ * `config` (brief follow-up: "customize ... the gridlines") overrides the
+ * paint properties only -- the zoom-adaptive interval logic above stays
+ * fixed, same "single value, not a full editor" scope as StylingPanel's
+ * fill/line controls.
+ */
+export function createGraticuleControl(config: GridlinesConfig = DEFAULT_GRIDLINES_CONFIG): IControl {
   let map: MapLibreMap | null = null;
   let currentInterval = -1;
 
@@ -67,7 +74,12 @@ export function createGraticuleControl(): IControl {
           id: LAYER_ID,
           type: "line",
           source: SOURCE_ID,
-          paint: { "line-color": "#888888", "line-width": 0.5, "line-opacity": 0.5, "line-dasharray": [2, 2] },
+          paint: {
+            "line-color": config.color,
+            "line-width": config.width,
+            "line-opacity": config.opacity,
+            "line-dasharray": [2, 2],
+          },
         });
       };
       if (map.isStyleLoaded()) addLayer();

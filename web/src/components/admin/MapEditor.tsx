@@ -1,27 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  deleteMap,
   fetchAdminDatasets,
   fetchAdminMap,
   publishMap,
+  unpublishMap,
   updateMap,
   UnauthorizedError,
+  DEFAULT_GRIDLINES_CONFIG,
   DEFAULT_LAYER_HOVER,
   DEFAULT_LAYER_POPUP,
+  DEFAULT_LEGEND_CONFIG,
   type AdminDataset,
   type AdminMapDetail,
+  type GridlinesConfig,
   type LayerHoverConfig,
   type LayerPopupConfig,
   type MapFilter,
   type MapLayer,
+  type MapLegendConfig,
   type MapUpdatePatch,
   type PopupStyle,
 } from "../../lib/adminApi";
@@ -60,6 +67,8 @@ interface EditableFields {
   filters_json: MapFilter[];
   min_zoom: string;
   max_zoom: string;
+  gridlines_json: GridlinesConfig;
+  legend_json: MapLegendConfig;
 }
 
 function fieldsOf(map: AdminMapDetail): EditableFields {
@@ -96,6 +105,8 @@ function fieldsOf(map: AdminMapDetail): EditableFields {
     // Save time (see buildPatch).
     min_zoom: map.min_zoom != null ? String(map.min_zoom) : "",
     max_zoom: map.max_zoom != null ? String(map.max_zoom) : "",
+    gridlines_json: map.gridlines_json ?? DEFAULT_GRIDLINES_CONFIG,
+    legend_json: map.legend_json ?? DEFAULT_LEGEND_CONFIG,
   };
 }
 
@@ -122,6 +133,8 @@ function buildPatch(loaded: EditableFields, current: EditableFields): MapUpdateP
   if (JSON.stringify(loaded.filters_json) !== JSON.stringify(current.filters_json)) patch.filters_json = current.filters_json;
   if (loaded.min_zoom !== current.min_zoom) patch.min_zoom = zoomPatchValue(current.min_zoom);
   if (loaded.max_zoom !== current.max_zoom) patch.max_zoom = zoomPatchValue(current.max_zoom);
+  if (JSON.stringify(loaded.gridlines_json) !== JSON.stringify(current.gridlines_json)) patch.gridlines_json = current.gridlines_json;
+  if (JSON.stringify(loaded.legend_json) !== JSON.stringify(current.legend_json)) patch.legend_json = current.legend_json;
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
@@ -143,6 +156,7 @@ function buildPatch(loaded: EditableFields, current: EditableFields): MapUpdateP
  */
 export function MapEditor() {
   const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
   const { token, logout } = useAdminAuth();
   const authToken = token as string;
 
@@ -158,6 +172,8 @@ export function MapEditor() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   const load = useCallback(() => {
@@ -307,6 +323,30 @@ export function MapEditor() {
     setValues((prev) => (prev ? { ...prev, filters_json: prev.filters_json.filter((f) => f.id !== id) } : prev));
   }
 
+  function updateGridlines(patch: Partial<GridlinesConfig>) {
+    setValues((prev) => (prev ? { ...prev, gridlines_json: { ...prev.gridlines_json, ...patch } } : prev));
+  }
+
+  function updateLegendTitle(title: string) {
+    setValues((prev) => (prev ? { ...prev, legend_json: { ...prev.legend_json, title } } : prev));
+  }
+
+  /** Legend item overrides are keyed by dataset slug, not stored per-layer
+   * in layers_json -- a dataset can appear in the legend independently of
+   * whether it's still an included layer at all (see maps.py's
+   * MapLegendConfig docstring), so this lives in its own `legend_json.items`
+   * map rather than piggybacking on updateLayerConfig. */
+  function updateLegendItem(datasetSlug: string, patch: { label?: string | null; hidden?: boolean }) {
+    setValues((prev) => {
+      if (!prev) return prev;
+      const current = prev.legend_json.items[datasetSlug] ?? { label: null, hidden: false };
+      return {
+        ...prev,
+        legend_json: { ...prev.legend_json, items: { ...prev.legend_json.items, [datasetSlug]: { ...current, ...patch } } },
+      };
+    });
+  }
+
   async function handleSave() {
     if (!loaded || !values || !slug) return;
     const patch = buildPatch(loaded, values);
@@ -335,24 +375,45 @@ export function MapEditor() {
     }
   }
 
-  async function handlePublish() {
-    if (!slug) return;
+  async function handleTogglePublish() {
+    if (!slug || !map) return;
+    const publish = map.status !== "published";
     setPublishing(true);
     setMessage(null);
     try {
-      const updated = await publishMap(authToken, slug);
+      const updated = publish ? await publishMap(authToken, slug) : await unpublishMap(authToken, slug);
       setMap(updated);
-      setMessage({ kind: "success", text: "Published." });
-      toast.success("Map published.");
+      setMessage({ kind: "success", text: publish ? "Published." : "Unpublished." });
+      toast.success(publish ? "Map published." : "Map unpublished -- its public page is now offline.");
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         logout();
         return;
       }
-      setMessage({ kind: "error", text: "Could not publish." });
-      toast.error("Could not publish.");
+      const text = publish ? "Could not publish." : "Could not unpublish.";
+      setMessage({ kind: "error", text });
+      toast.error(text);
     } finally {
       setPublishing(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!slug) return;
+    setDeleting(true);
+    try {
+      await deleteMap(authToken, slug);
+      toast.success(`"${map?.name ?? slug}" deleted.`);
+      navigate("/admin/maps");
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        logout();
+        return;
+      }
+      toast.error(err instanceof Error ? err.message : "Could not delete this map.");
+    } finally {
+      setDeleting(false);
+      setConfirmDeleteOpen(false);
     }
   }
 
@@ -396,11 +457,43 @@ export function MapEditor() {
               View public page &rarr;
             </Link>
           )}
-          <Button type="button" onClick={handlePublish} disabled={publishing || map.status === "published"}>
-            {map.status === "published" ? "Published" : publishing ? "Publishing…" : "Publish"}
+          {/* Publish/Unpublish is now a real toggle (brief follow-up:
+              "admin should be able to unpublish ... maps"), not a one-way
+              action -- variant flips to `outline` when published so the
+              button doesn't read as "click again to publish more." */}
+          <Button
+            type="button"
+            variant={map.status === "published" ? "outline" : "default"}
+            onClick={handleTogglePublish}
+            disabled={publishing}
+          >
+            {publishing ? "Working…" : map.status === "published" ? "Unpublish" : "Publish"}
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => setConfirmDeleteOpen(true)}>
+            Delete
           </Button>
         </div>
       </div>
+
+      <Dialog open={confirmDeleteOpen} onOpenChange={(open) => !deleting && setConfirmDeleteOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete "{map.name}"?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the map's saved configuration (layers, filters, styling, controls). There is
+              no undo short of a backup restore. Datasets themselves are untouched.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmDeleteOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 overflow-y-auto p-6">
         <div className="flex flex-col gap-1.5">
@@ -521,6 +614,76 @@ export function MapEditor() {
                 className="w-24"
               />
             </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-foreground">Gridlines styling</span>
+          <p className="text-xs text-muted-foreground">
+            Applies when the "Gridlines" map control below is enabled.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="gridlines-color" className="text-xs text-muted-foreground">
+                Color
+              </Label>
+              <input
+                id="gridlines-color"
+                type="color"
+                value={values.gridlines_json.color}
+                onChange={(e) => updateGridlines({ color: e.target.value })}
+                className="h-8 w-14 cursor-pointer rounded-md border border-input"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="gridlines-width" className="text-xs text-muted-foreground">
+                Width
+              </Label>
+              <Input
+                id="gridlines-width"
+                type="number"
+                min={0}
+                max={5}
+                step={0.5}
+                value={values.gridlines_json.width}
+                onChange={(e) => updateGridlines({ width: Number(e.target.value) })}
+                className="w-20"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="gridlines-opacity" className="text-xs text-muted-foreground">
+                Opacity
+              </Label>
+              <Input
+                id="gridlines-opacity"
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={values.gridlines_json.opacity}
+                onChange={(e) => updateGridlines({ opacity: Number(e.target.value) })}
+                className="w-20"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-foreground">Legend</span>
+          <p className="text-xs text-muted-foreground">
+            Applies when the "Legend" map control below is enabled. Per-layer label overrides and hide toggles are
+            in each layer's row below.
+          </p>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="legend-title" className="text-xs text-muted-foreground">
+              Title
+            </Label>
+            <Input
+              id="legend-title"
+              value={values.legend_json.title}
+              onChange={(e) => updateLegendTitle(e.target.value)}
+              className="w-48"
+            />
           </div>
         </div>
 
@@ -671,6 +834,28 @@ export function MapEditor() {
                             )}
                           </div>
                         )}
+                      </div>
+
+                      {/* Legend override (brief follow-up: "customize the legend") */}
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-medium text-foreground">Legend</span>
+                        <div className="flex flex-wrap items-center gap-3 pl-1">
+                          <Input
+                            placeholder={dataset.name}
+                            value={values.legend_json.items[dataset.slug]?.label ?? ""}
+                            onChange={(e) => updateLegendItem(dataset.slug, { label: e.target.value || null })}
+                            className="h-7 w-40 text-xs"
+                          />
+                          <label className="flex items-center gap-1.5 text-xs text-foreground">
+                            <input
+                              type="checkbox"
+                              checked={values.legend_json.items[dataset.slug]?.hidden ?? false}
+                              onChange={(e) => updateLegendItem(dataset.slug, { hidden: e.target.checked })}
+                              className="size-3.5 accent-primary"
+                            />
+                            Hide from legend
+                          </label>
+                        </div>
                       </div>
                     </div>
                   )}

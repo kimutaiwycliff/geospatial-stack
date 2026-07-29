@@ -7,6 +7,7 @@ import {
   adminLayerPublishUrl,
   adminLayerStyleUrl,
   adminMapPublishUrl,
+  adminMapUnpublishUrl,
   adminMapUrl,
   adminMapsUrl,
   adminUploadApproveUrl,
@@ -284,6 +285,32 @@ export interface MapFilter {
   options: string[];
 }
 
+/** Per-dataset override for the auto-generated legend (brief follow-up:
+ * "customize the legend") -- mirrors maps.py's `MapLegendItem`. The legend
+ * control itself still discovers WHICH layers are visible off the map's
+ * own style; this only overrides a given dataset's display label, or
+ * hides it entirely. */
+export interface MapLegendItem {
+  label: string | null;
+  hidden: boolean;
+}
+
+export interface MapLegendConfig {
+  title: string;
+  items: Record<string, MapLegendItem>;
+}
+export const DEFAULT_LEGEND_CONFIG: MapLegendConfig = { title: "Legend", items: {} };
+
+/** Gridlines/graticule styling (brief follow-up: "customize ... the
+ * gridlines") -- mirrors maps.py's `GridlinesConfig` and
+ * graticuleControl.ts's own previous hardcoded paint values. */
+export interface GridlinesConfig {
+  color: string;
+  width: number;
+  opacity: number;
+}
+export const DEFAULT_GRIDLINES_CONFIG: GridlinesConfig = { color: "#888888", width: 0.5, opacity: 0.5 };
+
 /** Matches urlState.ts's `MapUrlState.view` shape exactly (brief note) --
  * reused as-is rather than inventing a parallel view-state type. */
 export interface MapExtent {
@@ -311,13 +338,14 @@ export interface PublicMapConfig {
   basemap: string;
   default_extent: MapExtent | null;
   filters_json: MapFilter[] | null;
-  legend_json: Record<string, unknown> | null;
+  legend_json: MapLegendConfig | null;
   controls_json: MapControlsConfig;
   /** Null = no constraint, matching MapLibre's own Map constructor
    * behavior when minZoom/maxZoom are omitted (brief follow-up:
    * "optionally choose minimum and maximum zoom per map"). */
   min_zoom: number | null;
   max_zoom: number | null;
+  gridlines_json: GridlinesConfig | null;
 }
 
 /** One row of `GET /admin/maps` -- the authoring UI's list view, every
@@ -341,12 +369,13 @@ export interface AdminMapDetail extends AdminMapSummary {
   basemap: string;
   default_extent: MapExtent | null;
   filters_json: MapFilter[] | null;
-  legend_json: Record<string, unknown> | null;
+  legend_json: MapLegendConfig | null;
   controls_json: MapControlsConfig;
   created_by: string | null;
   version: number;
   min_zoom: number | null;
   max_zoom: number | null;
+  gridlines_json: GridlinesConfig | null;
 }
 
 /** Body for `POST /admin/maps` -- `name` is the only required field; the
@@ -366,10 +395,11 @@ export interface MapUpdatePatch {
   basemap?: string;
   default_extent?: MapExtent | null;
   filters_json?: MapFilter[] | null;
-  legend_json?: Record<string, unknown> | null;
+  legend_json?: MapLegendConfig | null;
   controls_json?: MapControlsConfig;
   min_zoom?: number | null;
   max_zoom?: number | null;
+  gridlines_json?: GridlinesConfig | null;
 }
 
 /** One row of `GET /admin/audit-log`. `details` is intentionally left as a
@@ -647,4 +677,18 @@ export function updateMap(token: string, slug: string, patch: MapUpdatePatch): P
 /** Flips a map's status to published. Idempotent server-side if already published. */
 export function publishMap(token: string, slug: string): Promise<AdminMapDetail> {
   return adminFetch<AdminMapDetail>(adminMapPublishUrl(slug), token, { method: "POST" });
+}
+
+/** Flips a map's status back to draft (brief follow-up: "admin should be
+ * able to unpublish ... maps") -- takes an already-shared `/m/<slug>` URL
+ * offline; idempotent server-side if already a draft. */
+export function unpublishMap(token: string, slug: string): Promise<AdminMapDetail> {
+  return adminFetch<AdminMapDetail>(adminMapUnpublishUrl(slug), token, { method: "POST" });
+}
+
+/** Deletes a map's registry row outright (brief follow-up: "even delete
+ * maps") -- works regardless of draft/published status. There is no undo
+ * short of a backup restore. */
+export function deleteMap(token: string, slug: string): Promise<{ slug: string; deleted: true }> {
+  return adminFetch(adminMapUrl(slug), token, { method: "DELETE" });
 }

@@ -1,4 +1,5 @@
 import type { IControl, Map as MapLibreMap } from "maplibre-gl";
+import { DEFAULT_LEGEND_CONFIG, type MapLegendConfig } from "../adminApi";
 import { datasetSlugFromLayerId } from "../mapSources";
 
 /**
@@ -21,8 +22,14 @@ import { datasetSlugFromLayerId } from "../mapSources";
  * added" and "an existing layer's visibility was toggled" (LayerPanel's
  * `setLayoutProperty` calls) -- one listener covers both without this
  * control needing its own separate hook into LayerPanel's toggle state.
+ *
+ * `config` (brief follow-up: "customize the legend") only overrides
+ * PRESENTATION -- a per-dataset display label instead of the raw slug, or
+ * hiding a dataset's row entirely -- not which layers are discovered in
+ * the first place (still auto, off the map's own style, per the doc
+ * comment above).
  */
-export function createLegendControl(): IControl {
+export function createLegendControl(config: MapLegendConfig = DEFAULT_LEGEND_CONFIG): IControl {
   let map: MapLibreMap | null = null;
   let container: HTMLElement | null = null;
 
@@ -30,13 +37,27 @@ export function createLegendControl(): IControl {
     if (!map || !container) return;
     container.innerHTML = "";
 
+    if (config.title) {
+      const title = document.createElement("p");
+      title.className = "px-1 pb-0.5 text-xs font-semibold text-foreground";
+      title.textContent = config.title;
+      container.appendChild(title);
+    }
+
     const rows = (map.getStyle()?.layers ?? [])
       .filter((layer) => layer.id.startsWith("fill:"))
       .filter((layer) => (map!.getLayoutProperty(layer.id, "visibility") ?? "visible") !== "none")
-      .map((layer) => ({
-        slug: datasetSlugFromLayerId(layer.id) ?? layer.id,
-        color: (map!.getPaintProperty(layer.id, "fill-color") as string | undefined) ?? "#999999",
-      }));
+      .map((layer) => {
+        const slug = datasetSlugFromLayerId(layer.id) ?? layer.id;
+        const override = config.items[slug];
+        return {
+          slug,
+          hidden: override?.hidden ?? false,
+          label: override?.label || slug,
+          color: (map!.getPaintProperty(layer.id, "fill-color") as string | undefined) ?? "#999999",
+        };
+      })
+      .filter((row) => !row.hidden);
 
     if (rows.length === 0) {
       const empty = document.createElement("p");
@@ -57,7 +78,7 @@ export function createLegendControl(): IControl {
 
       const label = document.createElement("span");
       label.className = "truncate text-foreground";
-      label.textContent = row.slug;
+      label.textContent = row.label;
       item.appendChild(label);
 
       container.appendChild(item);

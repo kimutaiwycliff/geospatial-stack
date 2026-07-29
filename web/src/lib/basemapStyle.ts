@@ -110,4 +110,35 @@ export function applyBasemapFlavor(map: MapLibreMap, flavorName: BasemapFlavor):
   // undefined (see basemapSpriteUrl), so this cast reflects that narrower
   // reality rather than papering over a real type mismatch.
   map.setSprite((style.sprite as string | undefined) ?? null);
+
+  flavorChangeListeners.get(map)?.forEach((listener) => listener(flavorName));
+}
+
+/**
+ * Lets a SECOND map instance (today: minimapControl's own overview map)
+ * track the first's basemap flavor live -- brief follow-up: "the basemap
+ * style should cut across even to the minimap." A plain `WeakMap` of
+ * listener sets, not MapLibre's own typed event system (`map.on`/`.fire`):
+ * MapLibre's `Evented` mixin does support arbitrary custom event names at
+ * runtime, but its TypeScript overloads are closed to the built-in
+ * `MapEventType` union, so a custom event name doesn't type-check cleanly.
+ * Keyed by the SOURCE map (the one `applyBasemapFlavor` is called on, e.g.
+ * from basemapSwitcherControl), not the listener's own map, since that's
+ * the instance whose flavor changes are the thing being watched.
+ */
+const flavorChangeListeners = new WeakMap<MapLibreMap, Set<(flavor: BasemapFlavor) => void>>();
+
+/** Registers `listener` to fire every time `applyBasemapFlavor(map, ...)`
+ * runs. Returns an unsubscribe function -- callers (minimapControl's
+ * `onRemove`) MUST call it when torn down, since the `Set` this closes
+ * over would otherwise keep a removed control's callback alive for as
+ * long as the main map itself lives. */
+export function onBasemapFlavorChange(map: MapLibreMap, listener: (flavor: BasemapFlavor) => void): () => void {
+  let listeners = flavorChangeListeners.get(map);
+  if (!listeners) {
+    listeners = new Set();
+    flavorChangeListeners.set(map, listeners);
+  }
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }

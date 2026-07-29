@@ -9,6 +9,7 @@ import {
   type IControl,
   type Map as MapLibreMap,
 } from "maplibre-gl";
+import type { GridlinesConfig, MapLegendConfig } from "./adminApi";
 import type { BasemapFlavor } from "./basemapStyle";
 import { createAtmosphereControl } from "./controls/atmosphereControl";
 import { createBasemapSwitcherControl } from "./controls/basemapSwitcherControl";
@@ -103,7 +104,10 @@ export const DEFAULT_MAP_CONTROLS: Record<MapControlId, MapControlConfig> = {
   navigation: { enabled: true, position: "top-right" },
   fullscreen: { enabled: true, position: "top-right" },
   geolocate: { enabled: false, position: "top-right" },
-  globe: { enabled: false, position: "top-right" },
+  // Enabled by default -- a Map now loads projected as a globe by default
+  // (brief follow-up), so the button that lets a visitor flatten it back
+  // to mercator needs to actually be there by default too.
+  globe: { enabled: true, position: "top-right" },
   scale: { enabled: false, position: "bottom-left" },
   attribution: { enabled: true, position: "bottom-right" },
   logo: { enabled: false, position: "bottom-left" },
@@ -168,22 +172,37 @@ const CONTROL_FACTORIES: Record<MapControlId, () => IControl> = {
  * two attribution controls if `attribution` is enabled here -- see
  * MapBySlugPage.tsx for why that flag is required alongside this call.
  *
- * `initialBasemapFlavor` is threaded through ONLY to the basemap-switcher
- * control -- it's the one control here that needs to know something about
- * the Map beyond its own enabled/position config (what flavor the map was
- * actually built with), so it's special-cased rather than widening every
- * other factory's signature for a need only this one has.
+ * `opts` covers everything a control here needs beyond its own enabled/
+ * position config: `initialBasemapFlavor` for basemap-switcher/minimap
+ * (what flavor the map was actually built with), `gridlinesConfig` for
+ * gridlines, `legendConfig` for legend (brief follow-up: customizable
+ * gridlines/legend). Each is special-cased by id rather than widening
+ * every OTHER factory's signature for a need only one control has.
  */
 export function applyMapControls(
   map: MapLibreMap,
   config: MapControlsConfig | null | undefined,
-  opts?: { initialBasemapFlavor?: BasemapFlavor },
+  opts?: {
+    initialBasemapFlavor?: BasemapFlavor;
+    gridlinesConfig?: GridlinesConfig;
+    legendConfig?: MapLegendConfig;
+  },
 ): void {
   if (!config) return;
   for (const id of MAP_CONTROL_IDS) {
     const entry = config[id];
     if (entry?.enabled) {
-      const control = id === "basemap-switcher" ? createBasemapSwitcherControl(opts?.initialBasemapFlavor) : CONTROL_FACTORIES[id]();
+      let control: IControl;
+      if (id === "basemap-switcher") control = createBasemapSwitcherControl(opts?.initialBasemapFlavor);
+      // minimap also needs to know the starting flavor (brief follow-up:
+      // "basemap style should cut across even to the minimap") -- it stays
+      // in sync with LIVE changes via basemapStyle.ts's own
+      // onBasemapFlavorChange subscription, but its own overview map still
+      // needs the correct flavor for its very FIRST frame.
+      else if (id === "minimap") control = createMinimapControl(opts?.initialBasemapFlavor);
+      else if (id === "gridlines") control = createGraticuleControl(opts?.gridlinesConfig);
+      else if (id === "legend") control = createLegendControl(opts?.legendConfig);
+      else control = CONTROL_FACTORIES[id]();
       map.addControl(control, entry.position);
     }
   }

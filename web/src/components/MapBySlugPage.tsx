@@ -132,7 +132,13 @@ export function MapBySlugPage() {
       // Read `config.basemap` directly (not React state) -- this is the
       // map's very first frame, and there's no risk of a stale value here
       // since this effect already depends on `config` being non-null.
-      style: buildBaseStyle(asBasemapFlavor(config.basemap)),
+      // `projection` is a STYLE-level property, not a Map constructor
+      // option -- spread onto buildBaseStyle's result. Loads as a globe by
+      // default (brief follow-up) -- the "globe" control (now defaulted to
+      // enabled, see mapControls.ts's DEFAULT_MAP_CONTROLS) is the
+      // "optionally ... flatten the map" half: MapLibre's own GlobeControl
+      // button toggles projection between globe and mercator.
+      style: { ...buildBaseStyle(asBasemapFlavor(config.basemap)), projection: { type: "globe" } },
       center: view.center,
       zoom: view.zoom,
       // Undefined (not set at all) when unconfigured -- MapLibre's own
@@ -152,7 +158,11 @@ export function MapBySlugPage() {
     // "just another map control that can be toggled and placed wherever
     // you want") -- `initialBasemapFlavor` seeds its dropdown to match the
     // flavor this map was actually built with above.
-    applyMapControls(map, config.controls_json, { initialBasemapFlavor: asBasemapFlavor(config.basemap) });
+    applyMapControls(map, config.controls_json, {
+      initialBasemapFlavor: asBasemapFlavor(config.basemap),
+      gridlinesConfig: config.gridlines_json ?? undefined,
+      legendConfig: config.legend_json ?? undefined,
+    });
 
     // Published styles (brief §6.3) -- see MapView.tsx's identical fetch
     // for why this is a separate best-effort call rather than baked into

@@ -240,3 +240,8 @@ export function adminMapUrl(slug: string): string {
 export function adminMapPublishUrl(slug: string): string {
   return `${API_BASE_URL}/admin/maps/${encodeURIComponent(slug)}/publish`;
 }
+
+/** Admin -- flips a map's status published -> draft. Idempotent server-side. */
+export function adminMapUnpublishUrl(slug: string): string {
+  return `${API_BASE_URL}/admin/maps/${encodeURIComponent(slug)}/unpublish`;
+}

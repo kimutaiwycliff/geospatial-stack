@@ -4,7 +4,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 // exports the same class as `MapLibreMap` -- used here for exactly that
 // reason). `MapLayerMouseEvent` types the click handler's `e` param, which
 // is otherwise implicit-any because `Map.on` is overloaded per-event-type.
-import { Map as MapLibreMap, Popup, type LngLatBoundsLike, type MapMouseEvent } from "maplibre-gl";
+import { GlobeControl, Map as MapLibreMap, Popup, type LngLatBoundsLike, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchFeature, isMappable, type Dataset } from "../lib/api";
 import { fetchPublishedStyles } from "../lib/adminApi";
@@ -100,11 +100,25 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     // like `visibleSlugs` already is for layer toggles.
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: buildBaseStyle(basemapFlavor),
+      // `projection` is a STYLE-level property (StyleSpecification), not a
+      // Map constructor option -- spread onto buildBaseStyle's result
+      // rather than baked into that function itself, since it's shared
+      // with minimapControl's overview inset, which should stay mercator.
+      // Loads as a globe by default (brief follow-up) -- the GlobeControl
+      // button added just below is the "optionally ... flatten the map"
+      // half of that: it toggles projection between globe and mercator,
+      // starting from globe instead of MapLibre's own mercator default.
+      style: { ...buildBaseStyle(basemapFlavor), projection: { type: "globe" } },
       center: view.center,
       zoom: view.zoom,
     });
     mapRef.current = map;
+    // The "optionally ... flatten the map" half of loading as a globe by
+    // default above -- this page has no controls_json/Map-authoring config
+    // to gate this behind (unlike MapBySlugPage's published Maps), so it's
+    // unconditional here, the one MapLibre-native control this general
+    // explorer adds at all.
+    map.addControl(new GlobeControl(), "top-right");
 
     // Only sets `ready` here -- does NOT add dataset sources/layers itself.
     // A separate effect (keyed on [ready, datasets]) owns that, exactly

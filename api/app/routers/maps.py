@@ -122,6 +122,37 @@ class MapFilter(BaseModel):
     options: list[str] = []
 
 
+class MapLegendItem(BaseModel):
+    """Per-dataset override for the auto-generated legend control (brief
+    follow-up: "I should also be able to customize the legend"). The
+    legend control itself (legendControl.ts) still discovers WHICH layers
+    are currently visible straight off the map's own style -- this only
+    overrides how a given dataset's row is presented, or hides it
+    entirely, rather than replacing that discovery with a hand-maintained
+    list an admin would have to keep in sync as layers are added/removed."""
+
+    label: str | None = None
+    hidden: bool = False
+
+
+class MapLegendConfig(BaseModel):
+    title: str = "Legend"
+    items: dict[str, MapLegendItem] = {}
+
+
+class GridlinesConfig(BaseModel):
+    """Styling for the gridlines/graticule control (brief follow-up: "I
+    should also be able to customize ... the gridlines") -- the zoom-
+    adaptive interval logic itself (coarser grid when zoomed out) stays
+    fixed in graticuleControl.ts; only its paint properties are
+    admin-configurable, same "single value, not a full style-spec editor"
+    scope as StylingPanel's fill/line controls."""
+
+    color: str = "#888888"
+    width: float = 0.5
+    opacity: float = 0.5
+
+
 class MapCreate(BaseModel):
     name: str
     description: str | None = None
@@ -134,8 +165,9 @@ class MapUpdate(BaseModel):
     basemap: str | None = None
     default_extent: dict | None = None
     filters_json: list[MapFilter] | None = None
-    legend_json: dict | None = None
+    legend_json: MapLegendConfig | None = None
     controls_json: dict[str, MapControlConfig] | None = None
+    gridlines_json: GridlinesConfig | None = None
     # Nullable, no default -- unset means "no zoom constraint" (brief
     # follow-up: "optionally choose minimum and maximum zoom per map").
     min_zoom: float | None = None
@@ -177,7 +209,7 @@ def get_published_map(slug: str):
             cur.execute(
                 """
                 SELECT slug, name, description, layers_json, basemap, default_extent, filters_json, legend_json,
-                       controls_json, min_zoom, max_zoom
+                       controls_json, min_zoom, max_zoom, gridlines_json
                 FROM registry.maps WHERE slug = %s AND status = 'published'
                 """,
                 (slug,),
@@ -282,7 +314,7 @@ def update_map(slug: str, update: MapUpdate = Body(...), admin: dict = Depends(r
     # JSONB columns need an explicit json.dumps -- psycopg2 has no built-in
     # adapter for a bare Python list/dict targeting jsonb (see styles
     # router's identical pattern for the single-value case).
-    jsonb_fields = {"layers_json", "default_extent", "filters_json", "legend_json", "controls_json"}
+    jsonb_fields = {"layers_json", "default_extent", "filters_json", "legend_json", "controls_json", "gridlines_json"}
     params = {field: (json.dumps(value) if field in jsonb_fields else value) for field, value in fields.items()}
     # controls_json is the one JSONB field that's a MERGE, not a whole-value
     # replace, unlike layers_json/default_extent/etc: each control id is an
@@ -344,3 +376,53 @@ def publish_map(slug: str, admin: dict = Depends(require_admin)):
     finally:
         conn.close()
     return _row_to_map(row)
+
+
+@router.post("/admin/maps/{slug}/unpublish")
+def unpublish_map(slug: str, admin: dict = Depends(require_admin)):
+    """Flips status published -> draft (brief follow-up: "admin should be
+    able to unpublish ... maps") -- the counterpart to publish_map above.
+    The public `/m/<slug>` route (get_published_map) only ever matches
+    `status = 'published'`, so this alone is what takes an already-shared
+    URL offline; the row and its config are untouched, so re-publishing
+    later needs no reconstruction. Idempotent no-op if already a draft."""
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE registry.maps SET status = 'draft' WHERE slug = %s RETURNING *",
+                (slug,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="map not found")
+            write_audit_log(cur, admin, "map.unpublished", slug, None)
+    finally:
+        conn.close()
+    return _row_to_map(row)
+
+
+@router.delete("/admin/maps/{slug}")
+def delete_map(slug: str, admin: dict = Depends(require_admin)):
+    """Deletes a Map's registry row outright (brief follow-up: "admin
+    should be able to ... even delete maps"). Unlike dataset deletion
+    (governance.py's delete_dataset), a Map has no pipeline-produced
+    artifacts in object storage to clean up -- it's pure stored config over
+    registry layers (this router's own module docstring), so removing the
+    row is the whole operation. Works regardless of draft/published status,
+    same as dataset deletion's "any tier_status" rule."""
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT name, status FROM registry.maps WHERE slug = %s", (slug,))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="map not found")
+            # Written before the DELETE, same reasoning as dataset deletion's
+            # audit entry -- registry.audit_log has no FK to registry.maps,
+            # so this row survives the Map's own removal on purpose.
+            write_audit_log(cur, admin, "map.deleted", slug, {"name": row["name"], "status": row["status"]})
+            cur.execute("DELETE FROM registry.maps WHERE slug = %s", (slug,))
+    finally:
+        conn.close()
+    return {"slug": slug, "deleted": True}

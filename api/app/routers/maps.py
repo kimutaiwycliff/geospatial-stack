@@ -80,6 +80,12 @@ class MapLayer(BaseModel):
     style_ref: Literal["published"] = "published"
     popup: LayerPopupConfig = LayerPopupConfig()
     hover: LayerHoverConfig = LayerHoverConfig()
+    # Independent of `popup`/`hover` -- brief follow-up: "choose whether by
+    # default it will fly to and zoom to that feature ... on top of popup
+    # on hover or click, or whether it will even popup in the first place."
+    # A visitor's click can zoom to the feature, show a popup, both, or
+    # neither, all set independently per layer.
+    zoom_to_feature: bool = False
 
 
 # The 7 controls genuinely native to MapLibre GL JS, plus 9 more hand-built

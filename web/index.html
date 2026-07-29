@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Geoplatform -- Indigenous &amp; Community Lands</title>
+    <!-- A simple map-pin glyph on the app's own primary blue (matches
+         mapSources.ts's palette / StylingPanel's defaults), deliberately
+         distinct from GeoLibre's own branding -- one SVG covers every
+         modern browser's favicon needs without needing a raster/ICO
+         generation toolchain for a handful of legacy sizes. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>
       // Applies the dark class BEFORE React mounts (src/lib/theme.tsx does
       // the same check on every subsequent render) -- without this, every

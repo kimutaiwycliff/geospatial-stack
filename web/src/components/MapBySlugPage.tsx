@@ -17,6 +17,7 @@ import {
   type PublicMapConfig,
 } from "../lib/adminApi";
 import { asBasemapFlavor, buildBaseStyle } from "../lib/basemapStyle";
+import { geometryBounds } from "../lib/geo";
 import { applyMapControls } from "../lib/mapControls";
 import {
   buildFillLayer,
@@ -121,7 +122,12 @@ export function MapBySlugPage() {
     // `layer.popup.enabled` directly on an old row would throw.
     const entries = config.layers_json
       .map((layer) => ({
-        layer: { ...layer, popup: layer.popup ?? DEFAULT_LAYER_POPUP, hover: layer.hover ?? DEFAULT_LAYER_HOVER },
+        layer: {
+          ...layer,
+          popup: layer.popup ?? DEFAULT_LAYER_POPUP,
+          hover: layer.hover ?? DEFAULT_LAYER_HOVER,
+          zoom_to_feature: layer.zoom_to_feature ?? false,
+        },
         dataset: datasets.find((d) => d.slug === layer.dataset_slug),
       }))
       .filter((entry): entry is { layer: (typeof config.layers_json)[number]; dataset: Dataset } => entry.dataset != null && isMappable(entry.dataset));
@@ -196,18 +202,31 @@ export function MapBySlugPage() {
       // and look (`popup.style`) the admin configured for THAT layer,
       // falling back to the old name-only content when unconfigured (see
       // buildFeatureHtml's doc comment).
+      // Zoom-to-feature and popup are independent (brief follow-up: "choose
+      // whether by default it will fly to and zoom to that feature ... on
+      // top of popup on hover or click, or whether it will even popup in
+      // the first place") -- a click can do either, both, or neither,
+      // driven by two separate per-layer config fields (layer.zoom_to_feature
+      // and layer.popup.enabled), not one flag gating the other.
       map.on("click", (e: MapMouseEvent) => {
         if (fillLayerIds.length === 0) return;
         const feature = map.queryRenderedFeatures(e.point, { layers: fillLayerIds })[0];
         if (!feature?.layer) return;
         const featureSlug = datasetSlugFromLayerId(feature.layer.id);
         const entry = entries.find((en) => en.dataset.slug === featureSlug);
-        if (!entry?.layer.popup.enabled) return;
-        const datasetName = entry.dataset.name;
-        new Popup({ closeButton: true })
-          .setLngLat(e.lngLat)
-          .setHTML(buildFeatureHtml(feature.properties ?? {}, entry.layer.popup.fields, entry.layer.popup.style, datasetName))
-          .addTo(map);
+        if (!entry) return;
+
+        if (entry.layer.zoom_to_feature && feature.geometry) {
+          const bounds = geometryBounds(feature.geometry);
+          if (bounds) map.fitBounds(bounds, { padding: 64, maxZoom: config.max_zoom ?? 14, duration: 800 });
+        }
+
+        if (entry.layer.popup.enabled) {
+          new Popup({ closeButton: true })
+            .setLngLat(e.lngLat)
+            .setHTML(buildFeatureHtml(feature.properties ?? {}, entry.layer.popup.fields, entry.layer.popup.style, entry.dataset.name))
+            .addTo(map);
+        }
       });
 
       // Hover tooltip (brief follow-up: "even hovering per dataset") --

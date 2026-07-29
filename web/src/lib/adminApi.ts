@@ -60,6 +60,13 @@ export interface AdminDataset {
    * column every dataset carries, not a real attribute) is filtered out by
    * the caller, not here -- see StylingPanel's `labelFieldOptions`. */
   schema_json: Record<string, string> | null;
+  /** Bounding-box polygon, as GeoJSON (same `ST_AsGeoJSON` shape api.ts's
+   * public `Dataset.extent` already uses) -- Map authoring's "fit to
+   * included layers" button (brief follow-up: "centroid and zoom levels
+   * set automatically based on the bounds of the dataset") reads this
+   * directly, since MapEditor has no live MapLibre preview to ask instead
+   * (by design, see MapEditor.tsx's own docstring). */
+  extent: GeoJSON.Polygon | null;
 }
 
 /** Every field optional on purpose -- this is a PATCH-shaped partial update
@@ -269,6 +276,12 @@ export interface MapLayer {
   style_ref: "published";
   popup: LayerPopupConfig;
   hover: LayerHoverConfig;
+  /** Independent of `popup`/`hover` (brief follow-up: "choose whether ...
+   * it will fly to and zoom to that feature ... on top of popup on hover
+   * or click, or whether it will even popup in the first place") -- a
+   * visitor's click can zoom to the feature, show a popup, both, or
+   * neither, all set independently per layer. */
+  zoom_to_feature: boolean;
 }
 
 /** One admin-defined filter widget (brief follow-up: "filters can be

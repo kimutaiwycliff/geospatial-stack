@@ -42,6 +42,7 @@ import {
   type MapControlsConfig,
 } from "../../lib/mapControls";
 import { asBasemapFlavor, BASEMAP_FLAVORS, BASEMAP_FLAVOR_LABELS } from "../../lib/basemapStyle";
+import { geometryBounds, unionBounds } from "../../lib/geo";
 
 /** Success-state Alert styling -- same convention as UploadStatusPanel's
  * SUCCESS_ALERT_CLASS (Alert has no built-in "success" variant). Both the
@@ -83,6 +84,7 @@ function fieldsOf(map: AdminMapDetail): EditableFields {
       ...layer,
       popup: layer.popup ?? DEFAULT_LAYER_POPUP,
       hover: layer.hover ?? DEFAULT_LAYER_HOVER,
+      zoom_to_feature: layer.zoom_to_feature ?? false,
     })),
     // Narrowed through asBasemapFlavor rather than trusted as-is -- a map
     // row saved before this picker existed already defaults to "light" (the
@@ -120,6 +122,29 @@ function fieldsOf(map: AdminMapDetail): EditableFields {
  * numeric value. Shared by min_zoom/max_zoom's diff below. */
 function zoomPatchValue(value: string): number | null {
   return value.trim() === "" ? null : Number(value);
+}
+
+/**
+ * Rough zoom estimate for a bbox, with no live MapLibre map to ask (this
+ * editor has never had a preview map, by design -- see this component's
+ * own docstring) -- brief follow-up: "centroid and zoom levels set
+ * automatically based on the bounds of the dataset." Mirrors the standard
+ * "degrees of longitude per tile at zoom Z" formula every `fitBounds`
+ * implementation is built on, assuming a generic ~700px viewport; this is
+ * a reasonable STARTING POINT for the admin to nudge afterward, not a
+ * promise of pixel-perfect framing (no viewport size is knowable here).
+ * Latitude span is scaled by `cos(meanLatitude)` to roughly account for
+ * Web Mercator's north/south stretching, the same correction
+ * worker/tasks.py's own `_bbox_wkt` calls out for a different reason.
+ */
+function estimateZoomForBounds(bounds: [[number, number], [number, number]]): number {
+  const [[minLng, minLat], [maxLng, maxLat]] = bounds;
+  const lngSpan = Math.max(maxLng - minLng, 0.0001);
+  const meanLatRad = ((minLat + maxLat) / 2) * (Math.PI / 180);
+  const latSpan = Math.max((maxLat - minLat) / Math.max(Math.cos(meanLatRad), 0.1), 0.0001);
+  const span = Math.max(lngSpan, latSpan);
+  const zoom = Math.log2(360 / span) - 0.6; // slight margin so the fit isn't edge-to-edge
+  return Math.max(0, Math.min(16, Math.round(zoom * 10) / 10));
 }
 
 function buildPatch(loaded: EditableFields, current: EditableFields): MapUpdatePatch | null {
@@ -232,6 +257,7 @@ export function MapEditor() {
               style_ref: "published" as const,
               popup: DEFAULT_LAYER_POPUP,
               hover: DEFAULT_LAYER_HOVER,
+              zoom_to_feature: false,
             },
           ];
       return { ...prev, layers_json };
@@ -246,6 +272,34 @@ export function MapEditor() {
         layers_json: prev.layers_json.map((l) => (l.dataset_slug === datasetSlug ? { ...l, visible: !l.visible } : l)),
       };
     });
+  }
+
+  /** "Fit to included layers" (brief follow-up: "the dataset they choose
+   * should be the centroid and zoom levels set automatically based on the
+   * bounds of the dataset") -- unions every currently-included layer's
+   * registry `extent` bbox and derives a center + a rough starting zoom
+   * from it, then seeds the SAME extentEnabled/centerLng/centerLat/zoom
+   * state the manual inputs below already drive (so this is just a
+   * convenience pre-fill, not a separate code path the manual inputs
+   * don't also cover). */
+  function handleFitToLayers() {
+    if (!values) return;
+    let bounds: [[number, number], [number, number]] | null = null;
+    for (const layer of values.layers_json) {
+      const dataset = datasets.find((d) => d.slug === layer.dataset_slug);
+      if (!dataset?.extent) continue;
+      bounds = unionBounds(bounds, geometryBounds(dataset.extent)) as [[number, number], [number, number]] | null;
+    }
+    if (!bounds) {
+      toast.error("None of the included layers have bounds data to fit to.");
+      return;
+    }
+    const [[minLng, minLat], [maxLng, maxLat]] = bounds;
+    setExtentEnabled(true);
+    setCenterLng(String(Math.round(((minLng + maxLng) / 2) * 1000) / 1000));
+    setCenterLat(String(Math.round(((minLat + maxLat) / 2) * 1000) / 1000));
+    setZoom(String(estimateZoomForBounds(bounds)));
+    toast.success("Default view fit to the included layers -- feel free to nudge it further.");
   }
 
   function updateControl(id: keyof MapControlsConfig, patch: Partial<MapControlsConfig[keyof MapControlsConfig]>) {
@@ -294,6 +348,16 @@ export function MapEditor() {
         layers_json: prev.layers_json.map((l) =>
           l.dataset_slug === datasetSlug ? { ...l, popup: { ...l.popup, style: { ...l.popup.style, ...patch } } } : l,
         ),
+      };
+    });
+  }
+
+  function toggleZoomToFeature(datasetSlug: string, zoom_to_feature: boolean) {
+    setValues((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        layers_json: prev.layers_json.map((l) => (l.dataset_slug === datasetSlug ? { ...l, zoom_to_feature } : l)),
       };
     });
   }
@@ -536,11 +600,23 @@ export function MapEditor() {
         </div>
 
         <div className="flex flex-col gap-2 text-sm">
-          <div className="flex items-center gap-2">
-            <Switch id="extent-enabled" checked={extentEnabled} onCheckedChange={setExtentEnabled} />
-            <Label htmlFor="extent-enabled" className="font-medium text-foreground">
-              Set a default view
-            </Label>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Switch id="extent-enabled" checked={extentEnabled} onCheckedChange={setExtentEnabled} />
+              <Label htmlFor="extent-enabled" className="font-medium text-foreground">
+                Set a default view
+              </Label>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleFitToLayers}
+              disabled={values.layers_json.length === 0}
+              title={values.layers_json.length === 0 ? "Include a layer first" : undefined}
+            >
+              Fit to included layers
+            </Button>
           </div>
           {extentEnabled && (
             <div className="flex flex-wrap items-center gap-3 pl-8">
@@ -730,6 +806,20 @@ export function MapEditor() {
 
                   {layer && (
                     <div className="ml-8 flex flex-col gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                      {/* Zoom-to-feature (brief follow-up: "choose whether by
+                          default it will fly to and zoom to that feature ...
+                          on top of popup on hover or click") -- independent
+                          of the popup/hover toggles below: a click can zoom,
+                          popup, both, or neither. */}
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={layer.zoom_to_feature}
+                          onCheckedChange={(checked) => toggleZoomToFeature(dataset.slug, checked)}
+                          aria-label={`Zoom to feature on click for ${dataset.name}`}
+                        />
+                        <span className="text-xs font-medium text-foreground">Zoom to feature on click</span>
+                      </div>
+
                       {/* Popup (brief follow-up: "customize what field show up on popups ... clicking features") */}
                       <div className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-2">

@@ -7,6 +7,7 @@ etl/ and api/worker/tasks.py as data moves through raw -> curated ->
 published) and must never be hand-edited from an admin form independently
 of the actual data underneath them.
 """
+import json
 from typing import Literal
 
 from app.auth.dependencies import require_admin
@@ -52,19 +53,30 @@ def list_all_datasets(admin: dict = Depends(require_admin)):
     "which field is the label" dropdown instead of a free-text input a
     curator could typo -- this is the one universal source of "what
     attributes does this dataset actually have," unlike validation_report's
-    `fields`, which is only populated for self-service uploads."""
+    `fields`, which is only populated for self-service uploads.
+
+    `extent` (as GeoJSON, same `ST_AsGeoJSON` cast the public `/datasets`
+    endpoint already uses) lets Map authoring's "fit to included layers"
+    button (brief follow-up: "centroid and zoom levels set automatically
+    based on the bounds of the dataset") compute a default view without a
+    live MapLibre preview to ask -- MapEditor has never had one of those,
+    by design (see its own module docstring)."""
     conn = get_connection()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, slug, name, description, source, license, attribution,
-                       sensitivity, tier_status, serve_mode, validation_report, schema_json, created_at, updated_at
+                       sensitivity, tier_status, serve_mode, validation_report, schema_json,
+                       ST_AsGeoJSON(extent) AS extent, created_at, updated_at
                 FROM registry.datasets
                 ORDER BY name
                 """
             )
             rows = cur.fetchall()
+            for row in rows:
+                if row["extent"] is not None:
+                    row["extent"] = json.loads(row["extent"])
     finally:
         conn.close()
     return rows

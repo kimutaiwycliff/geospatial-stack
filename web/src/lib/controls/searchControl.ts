@@ -18,8 +18,8 @@ const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const DEBOUNCE_MS = 500;
 
 /** Magnifying-glass glyph, same inlined-SVG convention as every other
- * hand-built control's icon (basemapSwitcherControl.ts's LAYERS_ICON,
- * etc.) -- no icon-font/external asset dependency. */
+ * hand-built control's icon (layersControl.ts's LAYERS_ICON, etc.) -- no
+ * icon-font/external asset dependency. */
 const SEARCH_ICON = `
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <circle cx="11" cy="11" r="8"></circle>
@@ -125,13 +125,19 @@ export function createSearchControl(): IControl {
 
       toggleButton = document.createElement("button");
       toggleButton.type = "button";
-      toggleButton.className = "maplibregl-ctrl-icon";
+      // Theme-aware replacement for `.maplibregl-ctrl-group`'s look
+      // (rounded + box-shadow + the 29x29 sizing that class's own `button`
+      // descendant selector provides), applied to the BUTTON rather than
+      // `container` -- `container` also wraps `expanded` below, which has
+      // its own separate box styling once open, and boxing the container
+      // too would nest one border inside another. Not `.maplibregl-ctrl-
+      // group` itself: that hardcodes `background:#fff` with no dark-mode
+      // awareness (brief follow-up: "does not look well ... in dark mode").
+      toggleButton.className =
+        "maplibregl-ctrl-icon flex h-[29px] w-[29px] items-center justify-center rounded border border-border bg-card shadow-sm";
       toggleButton.title = "Search a place";
       toggleButton.setAttribute("aria-label", "Search a place");
       toggleButton.innerHTML = SEARCH_ICON;
-      toggleButton.style.display = "flex";
-      toggleButton.style.alignItems = "center";
-      toggleButton.style.justifyContent = "center";
       toggleButton.onclick = expand;
       container.appendChild(toggleButton);
 

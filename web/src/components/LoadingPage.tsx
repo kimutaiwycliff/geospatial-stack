@@ -10,7 +10,7 @@ import { Compass } from "lucide-react";
  *
  * The compass motif (searching/orienting) reads as "finding your map"
  * rather than a generic spinner -- same deliberate-icon-choice convention
- * as every hand-built map control's own icon (see basemapSwitcherControl.ts).
+ * as every hand-built map control's own icon (see layersControl.ts).
  * Spin duration is slowed to 2.5s via an arbitrary Tailwind value
  * (`animate-spin`'s default is 1s, which reads mechanical/urgent) -- a
  * loading state that will often resolve in under a second shouldn't feel

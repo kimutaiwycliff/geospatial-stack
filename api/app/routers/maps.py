@@ -119,7 +119,17 @@ class MapLayer(BaseModel):
 _KNOWN_CONTROLS = {
     "navigation", "fullscreen", "geolocate", "globe", "scale", "attribution", "logo",
     "search", "measure", "minimap", "gridlines",
-    "compass", "spinning-globe", "atmosphere", "bookmark", "legend", "layers", "basemap-switcher",
+    "compass", "spinning-globe", "atmosphere", "bookmark", "legend", "basemap-switcher",
+    # "layers" is retired (merged into "basemap-switcher", brief follow-up)
+    # but stays allow-listed: at least one real saved Map's controls_json
+    # already has this key (MapEditor.tsx's `{...DEFAULT_MAP_CONTROLS,
+    # ...map.controls_json}` load-merge preserves unknown keys from
+    # whatever was already stored, and re-sends the whole object on save)
+    # -- removing it here would 400 that Map's very next save for an
+    # unrelated field change. Harmless to keep: the frontend's renderer
+    # simply no longer iterates this id at all (see mapControls.ts's
+    # MAP_CONTROL_IDS), so a stored "layers" entry is inert either way.
+    "layers",
 }
 
 

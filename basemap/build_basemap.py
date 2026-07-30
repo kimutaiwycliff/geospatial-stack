@@ -24,10 +24,10 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import urllib.request
 
 from botocore.exceptions import ClientError
-
 from common import get_s3_client, s3_config, upload_file
 
 BUILDS_MANIFEST_URL = "https://build-metadata.protomaps.dev/builds.json"
@@ -77,6 +77,50 @@ def latest_build_url() -> str:
     return f"https://build.protomaps.com/{latest_key}"
 
 
+# Real production failure (brief follow-up: "the basemap did not build when
+# I started it out fresh"): `pmtiles extract` range-requests ~500MB+ over
+# HTTP/2 from Protomaps' CDN, which alone takes upward of ten minutes over a
+# normal connection -- a real run failed at 13% in with "stream error:
+# stream ID 9; INTERNAL_ERROR; received from peer", a transient HTTP/2
+# connection reset, not a bad bbox/maxzoom or a code bug. Neither this
+# script nor the CLI itself retried at all, so one mid-download blip over
+# that many minutes permanently failed the one-shot `basemap` container with
+# no automatic recovery -- `docker compose up`/`make fresh-start` never
+# retried it either, since it's a one-shot job like `migrate`, not a
+# `restart: unless-stopped` service. Matches this project's existing retry
+# policy for exactly this class of failure (Celery's autoretry_for on
+# transient DB/S3 errors, worker/tasks.py) -- narrow (CalledProcessError
+# only, not e.g. a bad bbox raising something else), with backoff, and a
+# fresh attempt each time (the CLI doesn't support resuming a partial
+# extract, so a stale partial output file from a failed attempt is removed
+# first rather than risking it being read as a complete one).
+_MAX_ATTEMPTS = 4
+_RETRY_BACKOFF_SECONDS = 15
+
+
+def _extract_with_retry(source_url: str, output_path: str) -> None:
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        try:
+            subprocess.run(
+                [
+                    "pmtiles", "extract", source_url, output_path,
+                    f"--bbox={WORLD_BBOX}", f"--maxzoom={MAXZOOM}",
+                ],
+                check=True,
+            )
+            return
+        except subprocess.CalledProcessError:
+            if attempt == _MAX_ATTEMPTS:
+                raise
+            wait_seconds = _RETRY_BACKOFF_SECONDS * attempt
+            print(f"build_basemap: extract attempt {attempt}/{_MAX_ATTEMPTS} failed "
+                  f"(likely a transient network blip on a long-running download) -- "
+                  f"retrying in {wait_seconds}s")
+            time.sleep(wait_seconds)
+
+
 def main():
     if _already_built():
         print(f"build_basemap: s3://.../{DEST_KEY} already exists -- skipping "
@@ -88,13 +132,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         output_path = f"{tmp}/basemap.pmtiles"
-        subprocess.run(
-            [
-                "pmtiles", "extract", source_url, output_path,
-                f"--bbox={WORLD_BBOX}", f"--maxzoom={MAXZOOM}",
-            ],
-            check=True,
-        )
+        _extract_with_retry(source_url, output_path)
         upload_file(output_path, DEST_KEY, public_prefix="basemap/")
         print(f"build_basemap: uploaded to s3://.../{DEST_KEY}")
 

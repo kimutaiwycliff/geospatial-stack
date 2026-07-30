@@ -13,7 +13,6 @@ import type { GridlinesConfig, MapLegendConfig } from "./adminApi";
 import type { Dataset } from "./api";
 import type { BasemapFlavor } from "./basemapStyle";
 import { createAtmosphereControl } from "./controls/atmosphereControl";
-import { createBasemapSwitcherControl } from "./controls/basemapSwitcherControl";
 import { createBookmarkControl } from "./controls/bookmarkControl";
 import { createGraticuleControl } from "./controls/graticuleControl";
 import { createLayersControl } from "./controls/layersControl";
@@ -24,25 +23,24 @@ import { createSearchControl } from "./controls/searchControl";
 import { createSpinningGlobeControl } from "./controls/spinningGlobeControl";
 
 /**
- * The 7 controls genuinely native to MapLibre GL JS itself, PLUS 10 more
+ * The 7 controls genuinely native to MapLibre GL JS itself, PLUS 9 more
  * that are real GeoLibre menu items but NOT MapLibre built-ins --
  * researched against GeoLibre's own source (brief §14): search/measure/
  * minimap/gridlines, (a later follow-up) compass/spinning-globe/
- * atmosphere/bookmark/legend, and (a further follow-up) layers -- GeoLibre
- * has both a full desktop-GIS sidebar LayerPanel AND a smaller corner
- * `maplibre-gl-layer-control`-based button; this is the latter form
- * factor (toggle visibility + zoom-to-layer) with the former's zoom-to
- * capability grafted on, deliberately WITHOUT drag-reorder/rename/
- * opacity-slider/remove/groups -- those mutate a Map's actual authored
- * config, which belongs in the admin Map editor, not a viewer control.
- * All 10 are hand-rolled here (src/lib/controls/*), each a small, self-
- * contained `IControl`, since no single popular npm package covers this
- * exact set the way GeoLibre's own proprietary `maplibre-gl-components`
- * bundle does. Everything else left in GeoLibre's menu (Terrain, Weather,
- * Route Animation, Flight Simulator, Directions, Reverse Geocode,
- * Colorbar) is still out of scope -- each needs a self-hosted elevation/
- * routing/geocoding dataset, an external paid/keyed API, or choropleth
- * styling support this app doesn't have yet, not just a config toggle.
+ * atmosphere/bookmark/legend, and (a further follow-up) layers.
+ * "basemap-switcher" and what used to be a separate "layers" control are
+ * now ONE entry/one icon -- GeoLibre's own corner layer-control plugin
+ * already treats the basemap as just another row in the same panel as
+ * dataset layers rather than a second button, and this app had briefly
+ * diverged from that (two icons) before merging back to match. All 9 are
+ * hand-rolled here (src/lib/controls/*), each a small, self-contained
+ * `IControl`, since no single popular npm package covers this exact set
+ * the way GeoLibre's own proprietary `maplibre-gl-components` bundle
+ * does. Everything else left in GeoLibre's menu (Terrain, Weather, Route
+ * Animation, Flight Simulator, Directions, Reverse Geocode, Colorbar) is
+ * still out of scope -- each needs a self-hosted elevation/routing/
+ * geocoding dataset, an external paid/keyed API, or choropleth styling
+ * support this app doesn't have yet, not just a config toggle.
  */
 export const MAP_CONTROL_IDS = [
   "navigation",
@@ -61,7 +59,6 @@ export const MAP_CONTROL_IDS = [
   "atmosphere",
   "bookmark",
   "legend",
-  "layers",
   "basemap-switcher",
 ] as const;
 export type MapControlId = (typeof MAP_CONTROL_IDS)[number];
@@ -99,8 +96,7 @@ export const MAP_CONTROL_LABELS: Record<MapControlId, string> = {
   atmosphere: "Atmospheric effects",
   bookmark: "Bookmarks (saved views)",
   legend: "Legend",
-  layers: "Layers (toggle / zoom to)",
-  "basemap-switcher": "Basemap switcher",
+  "basemap-switcher": "Basemap & layers (switch style, toggle / zoom to)",
 };
 
 export const CONTROL_POSITIONS: ControlPosition[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
@@ -132,7 +128,6 @@ export const DEFAULT_MAP_CONTROLS: Record<MapControlId, MapControlConfig> = {
   atmosphere: { enabled: false, position: "top-right" },
   bookmark: { enabled: false, position: "top-left" },
   legend: { enabled: false, position: "bottom-left" },
-  layers: { enabled: false, position: "top-right" },
   // Enabled by default -- unlike every other hand-built control above,
   // this one was ALREADY always-on for every published Map before it
   // joined controls_json (MapBySlugPage.tsx used to hard-render it),
@@ -168,15 +163,10 @@ const CONTROL_FACTORIES: Record<MapControlId, () => IControl> = {
   bookmark: () => createBookmarkControl(),
   legend: () => createLegendControl(),
   // Default (no-arg) fallback -- applyMapControls special-cases this one
-  // (passes the actual dataset list for labels/zoom-to-extent), so this
-  // entry only matters for type-completeness / any future caller that
-  // invokes CONTROL_FACTORIES directly.
-  layers: () => createLayersControl(),
-  // Default (no-arg) fallback -- applyMapControls special-cases this one
-  // id to pass through the Map's actual configured basemap flavor instead,
-  // so this entry only matters for type-completeness / any future caller
-  // that invokes CONTROL_FACTORIES directly.
-  "basemap-switcher": () => createBasemapSwitcherControl(),
+  // id to pass through the Map's actual configured basemap flavor AND
+  // dataset list instead, so this entry only matters for type-completeness
+  // / any future caller that invokes CONTROL_FACTORIES directly.
+  "basemap-switcher": () => createLayersControl(),
 };
 
 /**
@@ -192,8 +182,10 @@ const CONTROL_FACTORIES: Record<MapControlId, () => IControl> = {
  * position config: `initialBasemapFlavor` for basemap-switcher/minimap
  * (what flavor the map was actually built with), `gridlinesConfig` for
  * gridlines, `legendConfig` for legend (brief follow-up: customizable
- * gridlines/legend). Each is special-cased by id rather than widening
- * every OTHER factory's signature for a need only one control has.
+ * gridlines/legend), `datasets` for basemap-switcher's merged layer list
+ * (brief follow-up: basemap+layers combined into one control). Each is
+ * special-cased by id rather than widening every OTHER factory's
+ * signature for a need only one control has.
  */
 export function applyMapControls(
   map: MapLibreMap,
@@ -206,10 +198,11 @@ export function applyMapControls(
      * (brief follow-up, researched against GeoLibre's LegendSwatch.tsx) --
      * omitted entirely just falls back to square swatches. */
     datasetGeometryTypes?: Record<string, string>;
-    /** Full dataset rows (name/geometry_type/extent), for the layers
-     * control's labels + zoom-to-extent (brief follow-up, researched
-     * against GeoLibre's LayerPanel/layer-control plugin) -- omitted
-     * entirely just falls back to slugs as labels with zoom-to disabled. */
+    /** Full dataset rows (name/geometry_type/extent), for basemap-
+     * switcher's merged layer list -- its labels + zoom-to-extent (brief
+     * follow-up, researched against GeoLibre's LayerPanel/layer-control
+     * plugin) -- omitted entirely just falls back to slugs as labels with
+     * zoom-to disabled. */
     datasets?: Dataset[];
   },
 ): void {
@@ -218,7 +211,7 @@ export function applyMapControls(
     const entry = config[id];
     if (entry?.enabled) {
       let control: IControl;
-      if (id === "basemap-switcher") control = createBasemapSwitcherControl(opts?.initialBasemapFlavor);
+      if (id === "basemap-switcher") control = createLayersControl(opts?.initialBasemapFlavor, opts?.datasets);
       // minimap also needs to know the starting flavor (brief follow-up:
       // "basemap style should cut across even to the minimap") -- it stays
       // in sync with LIVE changes via basemapStyle.ts's own
@@ -227,7 +220,6 @@ export function applyMapControls(
       else if (id === "minimap") control = createMinimapControl(opts?.initialBasemapFlavor);
       else if (id === "gridlines") control = createGraticuleControl(opts?.gridlinesConfig);
       else if (id === "legend") control = createLegendControl(opts?.legendConfig, opts?.datasetGeometryTypes);
-      else if (id === "layers") control = createLayersControl(opts?.datasets);
       else control = CONTROL_FACTORIES[id]();
       map.addControl(control, entry.position);
     }

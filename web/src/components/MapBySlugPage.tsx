@@ -200,8 +200,9 @@ export function MapBySlugPage() {
       datasetGeometryTypes: Object.fromEntries(
         datasets.filter((d) => d.geometry_type).map((d) => [d.slug, d.geometry_type as string]),
       ),
-      // Layers control's labels + zoom-to-extent (brief follow-up) -- same
-      // already-fetched `datasets`, no new API call needed here either.
+      // Basemap-switcher's merged layer list -- labels + zoom-to-extent
+      // (brief follow-up: basemap+layers combined into one control) --
+      // same already-fetched `datasets`, no new API call needed either.
       datasets,
     });
 
@@ -395,7 +396,18 @@ export function MapBySlugPage() {
         // in that mode, wrapping the title one character per line. A fixed
         // base width (still capped by max-w-sm on very narrow viewports)
         // keeps the grid from collapsing.
-        <Card className="absolute left-3 top-3 z-10 w-72 max-w-[calc(100vw-1.5rem)] animate-in fade-in bg-card/95 py-3 shadow duration-300">
+        // `overflow-visible` overrides Card's own baked-in `overflow-hidden`
+        // (there for rounded-corner image clipping, see ui/card.tsx --
+        // `cn()` uses tailwind-merge, so a later `overflow-visible` here
+        // correctly wins over that base class rather than both applying).
+        // Without this, SearchableFilterSelect's dropdown -- `position:
+        // absolute` but still a DOM descendant of this Card -- rendered
+        // with zero visible content the moment it extended past the
+        // Card's own boundary: overflow-hidden clips descendants
+        // regardless of their own position, this isn't a z-index problem.
+        // Found by actually opening a filter with more than a couple
+        // options and watching the results list render completely empty.
+        <Card className="absolute left-3 top-3 z-10 w-72 max-w-[calc(100vw-1.5rem)] animate-in fade-in overflow-visible bg-card/95 py-3 shadow duration-300">
           <CardHeader className="gap-1 px-3">
             <CardTitle className="text-sm">{config.name}</CardTitle>
             {config.description && <CardDescription className="text-xs">{config.description}</CardDescription>}

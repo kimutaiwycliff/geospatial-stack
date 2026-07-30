@@ -123,8 +123,9 @@ export function applyBasemapFlavor(map: MapLibreMap, flavorName: BasemapFlavor):
  * runtime, but its TypeScript overloads are closed to the built-in
  * `MapEventType` union, so a custom event name doesn't type-check cleanly.
  * Keyed by the SOURCE map (the one `applyBasemapFlavor` is called on, e.g.
- * from basemapSwitcherControl), not the listener's own map, since that's
- * the instance whose flavor changes are the thing being watched.
+ * from layersControl's merged basemap-switcher), not the listener's own
+ * map, since that's the instance whose flavor changes are the thing being
+ * watched.
  */
 const flavorChangeListeners = new WeakMap<MapLibreMap, Set<(flavor: BasemapFlavor) => void>>();
 

@@ -47,12 +47,22 @@ export function createBookmarkControl(): IControl {
     onAdd(m) {
       map = m;
       const container = document.createElement("div");
-      container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+      // Plain `maplibregl-ctrl` (NOT `maplibregl-ctrl-group`) -- same dark-
+      // mode fix as layersControl.ts's merged basemap-switcher: MapLibre's
+      // own stylesheet hardcodes `.maplibregl-ctrl-group { background: #fff }`
+      // with no dark-mode awareness, which read as a jarring white square
+      // in dark mode. Not opting into that class avoids needing an override.
+      container.className = "maplibregl-ctrl relative";
       container.style.position = "relative";
 
       const toggleButton = document.createElement("button");
       toggleButton.type = "button";
-      toggleButton.className = "maplibregl-ctrl-icon";
+      // Theme-aware replacement for `.maplibregl-ctrl-group`'s look
+      // (rounded + box-shadow + the 29x29 sizing that class's own `button`
+      // descendant selector provides) -- see container's comment above for
+      // why `-group` itself isn't used.
+      toggleButton.className =
+        "maplibregl-ctrl-icon flex h-[29px] w-[29px] items-center justify-center rounded border border-border bg-card shadow-sm";
       toggleButton.title = "Bookmarks";
       toggleButton.setAttribute("aria-label", "Bookmarks");
       // A plain glyph, not an icon font/sprite -- matches this control

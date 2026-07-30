@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   deleteMap,
@@ -558,6 +559,29 @@ export function MapEditor() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {message && (
+            // Moved here from the very bottom of the form (brief follow-up:
+            // "better arrangement" for the map editor) -- with the form now
+            // split across tabs, a Save confirmation/error buried below
+            // whichever tab happened to be open was easy to miss entirely.
+            // Living next to the Save button itself means it's always in
+            // the same spot regardless of tab or scroll position.
+            <Alert
+              variant={message.kind === "error" ? "destructive" : "default"}
+              className={
+                message.kind === "success"
+                  ? `w-auto animate-in fade-in px-3 py-1.5 duration-200 ${SUCCESS_ALERT_CLASS}`
+                  : "w-auto animate-in fade-in px-3 py-1.5 duration-200"
+              }
+            >
+              <AlertDescription className={message.kind === "success" ? SUCCESS_TEXT_CLASS : undefined}>
+                {message.text}
+              </AlertDescription>
+            </Alert>
+          )}
+          <Button type="button" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
           {map.status === "published" && (
             <Link to={`/m/${map.slug}`} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
               View public page &rarr;
@@ -601,7 +625,25 @@ export function MapEditor() {
         </DialogContent>
       </Dialog>
 
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 overflow-y-auto p-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-y-auto p-6">
+        {/* Split into tabs (brief follow-up: "better arrangement" for the
+            map editor) -- this used to be one continuous ~700-line scroll
+            of every section back to back; grouping by what an admin is
+            actually doing (set up the basics, choose data, narrow it with
+            filters, style how it looks, decide which controls a visitor
+            gets) makes each individual task scannable instead of a wall of
+            fields to hunt through. `sticky` on TabsList keeps the tab
+            switcher reachable without scrolling back to the top first. */}
+        <Tabs defaultValue="basics" className="flex flex-1 flex-col gap-6">
+          <TabsList className="sticky top-0 z-10 self-start bg-background">
+            <TabsTrigger value="basics">Basics</TabsTrigger>
+            <TabsTrigger value="layers">Layers</TabsTrigger>
+            <TabsTrigger value="filters">Filters</TabsTrigger>
+            <TabsTrigger value="style">Style</TabsTrigger>
+            <TabsTrigger value="controls">Controls</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="basics" className="flex flex-col gap-6">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="map-name">Name</Label>
           <Input
@@ -734,11 +776,13 @@ export function MapEditor() {
             </div>
           </div>
         </div>
+          </TabsContent>
 
+          <TabsContent value="style" className="flex flex-col gap-6">
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-foreground">Gridlines styling</span>
           <p className="text-xs text-muted-foreground">
-            Applies when the "Gridlines" map control below is enabled.
+            Applies when the "Gridlines" map control in the Controls tab is enabled.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex flex-col gap-1">
@@ -943,8 +987,8 @@ export function MapEditor() {
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-foreground">Legend</span>
           <p className="text-xs text-muted-foreground">
-            Applies when the "Legend" map control below is enabled. Per-layer label overrides and hide toggles are
-            in each layer's row below.
+            Applies when the "Legend" map control (Controls tab) is enabled. Per-layer label overrides and hide
+            toggles are on each layer's row in the Layers tab.
           </p>
           <div className="flex flex-col gap-1">
             <Label htmlFor="legend-title" className="text-xs text-muted-foreground">
@@ -958,7 +1002,9 @@ export function MapEditor() {
             />
           </div>
         </div>
+          </TabsContent>
 
+          <TabsContent value="layers" className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-foreground">Layers</span>
@@ -1150,7 +1196,9 @@ export function MapEditor() {
             })}
           </ul>
         </div>
+          </TabsContent>
 
+          <TabsContent value="filters" className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-foreground">Filters</span>
@@ -1263,7 +1311,9 @@ export function MapEditor() {
             })}
           </ul>
         </div>
+          </TabsContent>
 
+          <TabsContent value="controls" className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium text-foreground">Map controls</span>
           <p className="text-xs text-muted-foreground">
@@ -1310,26 +1360,8 @@ export function MapEditor() {
             })}
           </ul>
         </div>
-
-        <div className="flex items-center gap-3">
-          <Button type="button" onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
-          {message && (
-            <Alert
-              variant={message.kind === "error" ? "destructive" : "default"}
-              className={
-                message.kind === "success"
-                  ? `w-auto animate-in fade-in px-3 py-1.5 duration-200 ${SUCCESS_ALERT_CLASS}`
-                  : "w-auto animate-in fade-in px-3 py-1.5 duration-200"
-              }
-            >
-              <AlertDescription className={message.kind === "success" ? SUCCESS_TEXT_CLASS : undefined}>
-                {message.text}
-              </AlertDescription>
-            </Alert>
-          )}
-        </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

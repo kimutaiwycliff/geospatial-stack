@@ -10,19 +10,28 @@ import { GovernanceForm } from "./GovernanceForm";
 import { StylingPanel } from "./StylingPanel";
 import { UploadStatusPanel } from "./UploadStatusPanel";
 
-type Tab = "governance" | "styling" | "publishing";
+type Tab = "publishing" | "styling" | "governance";
 
 /**
- * Governance + styling for one selected dataset, in a single view (brief
- * point 4: "click into a dataset to edit its governance fields AND its
- * draft style in one view -- a two-tab or two-panel layout is fine"). Tabs
- * chosen over side-by-side panels purely because the styling controls
- * (color swatch + slider) and the governance fields (five text inputs) are
+ * Publishing + styling + governance for one selected dataset, in a single
+ * view (brief point 4: "click into a dataset to edit its governance fields
+ * AND its draft style in one view -- a two-tab or two-panel layout is
+ * fine"). Tabs chosen over side-by-side panels purely because the styling
+ * controls (color swatch + slider), the validation/publish flow (report +
+ * approve button), and the governance fields (five text inputs) are
  * different enough widths that stacking them side by side either wastes
  * space or squeezes the text inputs -- tabs let each keep its natural
- * width. Audit history stays visible under both tabs rather than being a
- * third tab, since "what happened to this dataset" is relevant regardless
- * of which editor you're currently in -- so it's rendered OUTSIDE
+ * width.
+ *
+ * Publishing first (brief follow-up), not Governance -- see the `tab`
+ * state's own comment below for why. Governance last: it's the one tab
+ * whose fields rarely need a second look once set at upload time, whereas
+ * Publishing (usually) and Styling (often) are the tabs an admin actually
+ * comes back to.
+ *
+ * Audit history stays visible under every tab rather than being a fourth
+ * tab, since "what happened to this dataset" is relevant regardless of
+ * which editor you're currently in -- so it's rendered OUTSIDE
  * `<Tabs>`/`<TabsContent>` entirely, not as a fourth `TabsContent` that
  * would just be duplicated three times.
  */
@@ -52,7 +61,13 @@ export function DatasetDetail({
   onDeleted: () => void;
 }) {
   const { logout } = useAdminAuth();
-  const [tab, setTab] = useState<Tab>("governance");
+  // Publishing first (brief follow-up: "the first tab ... should be the
+  // publishing page") -- right after an upload validates, Publishing is
+  // the one tab with an actual decision waiting (approve/publish, or read
+  // why validation failed); Governance/Styling are settled-config edits a
+  // curator visits far less often, so defaulting to either of those made
+  // the most time-sensitive tab an extra click away every single time.
+  const [tab, setTab] = useState<Tab>("publishing");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -119,19 +134,19 @@ export function DatasetDetail({
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
         <TabsList>
-          <TabsTrigger value="governance">Governance</TabsTrigger>
-          <TabsTrigger value="styling">Styling</TabsTrigger>
           <TabsTrigger value="publishing">Publishing</TabsTrigger>
+          <TabsTrigger value="styling">Styling</TabsTrigger>
+          <TabsTrigger value="governance">Governance</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="governance">
-          <GovernanceForm token={token} dataset={dataset} onSaved={onGovernanceSaved} />
+        <TabsContent value="publishing">
+          <UploadStatusPanel key={dataset.slug} token={token} dataset={dataset} onStatusChange={onDatasetPatch} />
         </TabsContent>
         <TabsContent value="styling">
           <StylingPanel key={dataset.slug} token={token} dataset={dataset} draft={draft} onDraftSaved={onDraftSaved} />
         </TabsContent>
-        <TabsContent value="publishing">
-          <UploadStatusPanel key={dataset.slug} token={token} dataset={dataset} onStatusChange={onDatasetPatch} />
+        <TabsContent value="governance">
+          <GovernanceForm token={token} dataset={dataset} onSaved={onGovernanceSaved} />
         </TabsContent>
       </Tabs>
 

@@ -25,7 +25,7 @@ const SENSITIVITY_BADGE_VARIANT: Record<string, "secondary" | "outline" | "destr
   withheld: "destructive",
 };
 
-function SensitivityBadge({ sensitivity }: { sensitivity: string }) {
+export function SensitivityBadge({ sensitivity }: { sensitivity: string }) {
   const variant = SENSITIVITY_BADGE_VARIANT[sensitivity] ?? "outline";
   return (
     <Badge variant={variant} className={cn("capitalize", sensitivityTintClassName(sensitivity))}>

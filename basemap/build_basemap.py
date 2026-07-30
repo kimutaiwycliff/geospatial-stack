@@ -98,7 +98,11 @@ _MAX_ATTEMPTS = 4
 _RETRY_BACKOFF_SECONDS = 15
 
 
-def _extract_with_retry(source_url: str, output_path: str) -> None:
+def _extract_with_retry(source_url: str, output_path: str) -> bool:
+    """Returns True once `output_path` holds a complete extract, False if
+    every attempt failed -- deliberately NOT an exception on final failure,
+    see main()'s own comment on why the caller treats that as "give up
+    quietly", not "crash"."""
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         if os.path.exists(output_path):
             os.remove(output_path)
@@ -110,15 +114,16 @@ def _extract_with_retry(source_url: str, output_path: str) -> None:
                 ],
                 check=True,
             )
-            return
+            return True
         except subprocess.CalledProcessError:
             if attempt == _MAX_ATTEMPTS:
-                raise
+                return False
             wait_seconds = _RETRY_BACKOFF_SECONDS * attempt
             print(f"build_basemap: extract attempt {attempt}/{_MAX_ATTEMPTS} failed "
                   f"(likely a transient network blip on a long-running download) -- "
                   f"retrying in {wait_seconds}s")
             time.sleep(wait_seconds)
+    return False  # unreachable (the loop always returns/exits above), kept for clarity
 
 
 def main():
@@ -132,7 +137,29 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         output_path = f"{tmp}/basemap.pmtiles"
-        _extract_with_retry(source_url, output_path)
+        if not _extract_with_retry(source_url, output_path):
+            # Deliberately exit 0 here, NOT raise/crash -- docker-compose.yml
+            # now gates `proxy` (the site's only reachable entry point) on
+            # this container completing successfully, specifically so a
+            # fresh start actually WAITS for a real basemap instead of the
+            # site looking "up" minutes before the extract finishes (brief
+            # follow-up: "the basemap did not build again", root-caused to
+            # exactly that race). But that gate cuts both ways: if this
+            # exits non-zero, `proxy` would never start at all, and a
+            # genuine multi-attempt CDN outage would take the ENTIRE
+            # platform offline indefinitely -- clearly worse than "the site
+            # works, just with no basemap layer for now." Giving up
+            # quietly here unblocks `proxy` either way; the destination
+            # object still won't exist, so `_already_built()` correctly
+            # reports "not built" on the very next `docker compose up`/
+            # `make up`, which retries this whole thing from scratch with
+            # no manual intervention needed beyond running it again.
+            print(f"build_basemap: giving up after {_MAX_ATTEMPTS} failed attempts -- "
+                  f"the map will come up with NO basemap layer for now. This is usually "
+                  f"a transient Protomaps CDN issue; re-run `make up` (or `docker compose "
+                  f"up basemap`) to retry, or check https://status.protomaps.com if it "
+                  f"keeps failing.")
+            return
         upload_file(output_path, DEST_KEY, public_prefix="basemap/")
         print(f"build_basemap: uploaded to s3://.../{DEST_KEY}")
 

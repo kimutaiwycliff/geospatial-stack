@@ -88,6 +88,17 @@ services:
   # the object already exists, see `_already_built`), so re-running this on
   # every `docker compose up` -- same as `migrate` -- costs one cheap
   # HEAD request once the basemap has been built.
+  #
+  # `proxy` (below) now depends on THIS completing successfully -- a real
+  # bug report ("the basemap did not build again") root-caused to `docker
+  # compose up -d` returning as soon as containers START, not once one-shot
+  # jobs finish, so the site looked "up" and reachable several minutes
+  # before this ~10-15 minute extract actually finished; nothing was
+  # actually broken, the site was just checked too early. Gating `proxy` on
+  # `service_completed_successfully` makes that wait explicit and enforced
+  # instead of "usually fine if you don't look too soon." See
+  # build_basemap.py's own retry logic + its main() for what happens if
+  # every retry is exhausted (does not block `proxy` forever).
   basemap:
     build:
       context: ./basemap
@@ -331,10 +342,36 @@ services:
     mem_limit: 256m
     cpus: 0.5
     depends_on:
-      - web
-      - api
-      - martin
-      - storage
+      web:
+        condition: service_started
+      api:
+        condition: service_started
+      martin:
+        condition: service_started
+      storage:
+        condition: service_started
+      # Real bug (brief follow-up: "the basemap did not build again"):
+      # `proxy` is the ONLY service that publishes a host port, so it's the
+      # actual "is the site up" gate a browser hits -- but nothing here
+      # previously waited on `basemap` at all. `docker compose up -d`
+      # returns as soon as containers are STARTED, not once one-shot jobs
+      # like `basemap` finish, so a fresh start's ~10-15 minute PMTiles
+      # extract (see build_basemap.py) was still running in the background
+      # long after the site already looked "up" -- checking the map in
+      # that window shows no basemap not because the build failed, but
+      # because it simply hadn't finished yet. `service_completed_
+      # successfully` makes Compose actually block starting `proxy` until
+      # `basemap` exits -- a no-op wait after the very first successful
+      # build (`_already_built()` short-circuits with one HEAD request),
+      # so this only ever costs real time on a genuine first run or an
+      # explicit `BASEMAP_FORCE_REBUILD`/post-wipe fresh start, which is
+      # exactly when actually waiting is what "ensure it successfully
+      # builds during fresh start" requires. build_basemap.py's own retry
+      # logic still applies underneath this; see that file for what
+      # happens if every retry is exhausted (it does NOT block `proxy`
+      # forever -- see its own comment).
+      basemap:
+        condition: service_completed_successfully
     ports:
       - "8080:80"
       - "8443:443"

@@ -95,6 +95,17 @@ wipe:
 # the only thing left to do is `make create-admin` (see docs/reuse.md for
 # why there's no signup UI -- that's a deliberate security decision, not a
 # missing feature).
-fresh-start: wipe build up
+#
+# `up` is called explicitly here (not as a plain prerequisite) so this can
+# print a heads-up FIRST -- `wipe` destroys the MinIO volume, so this always
+# triggers a genuine from-scratch basemap extract (~10-15 minutes, see
+# basemap/build_basemap.py), and `proxy` now waits on that finishing before
+# the site is reachable at all (docker-compose.yml) -- a real bug report
+# ("the basemap did not build again") turned out to be exactly this wait,
+# just unexplained. Regular `make up` (no wipe) doesn't get this same
+# warning since it's a no-op after the very first successful build.
+fresh-start: wipe build
+	@echo "First-time basemap extract can take 10-15 minutes (one-time cost -- see basemap/build_basemap.py) -- \`make up\` will wait for it before the site is reachable."
+	$(MAKE) up
 	@echo
 	@echo "Stack is up on a fresh database. Next: make create-admin EMAIL=... PASSWORD=..."

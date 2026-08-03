@@ -201,6 +201,7 @@ export function MapEditor() {
   const [publishing, setPublishing] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [embedDialogOpen, setEmbedDialogOpen] = useState(false);
   const [fieldValueOptions, setFieldValueOptions] = useState<Record<string, string[]>>({});
   const [fieldValuesLoading, setFieldValuesLoading] = useState<Record<string, boolean>>({});
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -583,9 +584,20 @@ export function MapEditor() {
             {saving ? "Saving…" : "Save"}
           </Button>
           {map.status === "published" && (
-            <Link to={`/m/${map.slug}`} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
-              View public page &rarr;
-            </Link>
+            <>
+              <Link to={`/m/${map.slug}`} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
+                View public page &rarr;
+              </Link>
+              {/* Brief follow-up: "can another person use the map ... as an
+                  iframe" -- embedding only actually works once an admin has
+                  added the requesting site's origin to EMBED_ALLOWED_ORIGINS
+                  (caddy/Caddyfile's frame-ancestors allowlist for /m/*, see
+                  .env.example), so the dialog says so rather than handing
+                  out a snippet that silently gets blocked by the browser. */}
+              <Button type="button" variant="outline" size="sm" onClick={() => setEmbedDialogOpen(true)}>
+                Embed
+              </Button>
+            </>
           )}
           {/* Publish/Unpublish is now a real toggle (brief follow-up:
               "admin should be able to unpublish ... maps"), not a one-way
@@ -620,6 +632,47 @@ export function MapEditor() {
             </Button>
             <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting ? "Deleting…" : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={embedDialogOpen} onOpenChange={setEmbedDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Embed "{map.name}"</DialogTitle>
+            <DialogDescription>
+              Paste this into another site's HTML to embed this map. It only actually renders there once that site's
+              origin is added to <code className="text-xs">EMBED_ALLOWED_ORIGINS</code> (see .env.example) --
+              everything else on this platform stays blocked from being framed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="embed-snippet" className="text-xs text-muted-foreground">
+              Embed code
+            </Label>
+            <Textarea
+              id="embed-snippet"
+              readOnly
+              rows={3}
+              className="font-mono text-xs"
+              value={`<iframe src="${window.location.origin}/m/${map.slug}" width="100%" height="600" style="border:0" loading="lazy" allowfullscreen></iframe>`}
+              onFocus={(e) => e.target.select()}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(
+                    `<iframe src="${window.location.origin}/m/${map.slug}" width="100%" height="600" style="border:0" loading="lazy" allowfullscreen></iframe>`,
+                  )
+                  .then(() => toast.success("Embed code copied."))
+                  .catch(() => toast.error("Could not copy -- select the text above and copy it manually."));
+              }}
+            >
+              Copy
             </Button>
           </DialogFooter>
         </DialogContent>

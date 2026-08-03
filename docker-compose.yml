@@ -372,6 +372,14 @@ services:
       # forever -- see its own comment).
       basemap:
         condition: service_completed_successfully
+    # Needed for Caddyfile's `{$EMBED_ALLOWED_ORIGINS}` substitution (brief
+    # follow-up: "can another person use the map ... as an iframe" -- a
+    # per-deployment allowlist of origins permitted to frame a published
+    # Map's /m/:slug page). Caddy reads `{$VAR}` placeholders from its own
+    # process environment at config load, which -- unlike every OTHER env
+    # var this file passes to app containers -- this service never had a
+    # reason to need until now.
+    env_file: .env
     ports:
       - "8080:80"
       - "8443:443"

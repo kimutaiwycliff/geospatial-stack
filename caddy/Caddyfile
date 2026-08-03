@@ -59,6 +59,40 @@
 		}
 	}
 
+	# Published Maps' shareable page (brief follow-up: "can another person
+	# use the map ... as an iframe") -- the ONE place in this app framing is
+	# ever intentional, so it gets its OWN, narrower frame-ancestors instead
+	# of the global block's `'none'`. Must come before the catch-all `handle`
+	# below (Caddy evaluates handle/handle_path in declaration order, first
+	# match wins). Plain `handle` with a path matcher (NOT `handle_path`,
+	# which strips the matched prefix before proxying) -- this must forward
+	# the exact same `/m/<slug>` path upstream that the catch-all below
+	# already does today, or the SPA's client-side router (which reads the
+	# real browser URL, unaffected by proxy-internal rewriting either way)
+	# would still work, but nginx's own static-file lookup would be given a
+	# different path than it gets right now for no reason. Same static SPA
+	# files either way (`reverse_proxy web:80`), only the response headers
+	# differ for this one path prefix.
+	#
+	# `-X-Frame-Options`/`-Content-Security-Policy` remove the values the
+	# top-level `header` block already set for every request (Caddy doesn't
+	# overwrite a same-named header set by an earlier directive -- it adds a
+	# second one, and browsers combine multiple CSPs with AND semantics, so
+	# without this explicit removal the global 'none' would still win here).
+	# X-Frame-Options isn't replaced with anything -- it can't express "allow
+	# these N specific origins" (only DENY/SAMEORIGIN, or the deprecated,
+	# Chrome-unsupported ALLOW-FROM), so this relies purely on CSP
+	# frame-ancestors, which every modern browser prefers over X-Frame-Options
+	# when both would otherwise apply anyway.
+	handle /m/* {
+		header {
+			-X-Frame-Options
+			-Content-Security-Policy
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors {$EMBED_ALLOWED_ORIGINS};"
+		}
+		reverse_proxy web:80
+	}
+
 	# Everything else: the built SPA (nginx container serves static files with
 	# its own history-fallback config for client-side routing).
 	handle {

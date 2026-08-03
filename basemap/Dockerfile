@@ -13,9 +13,14 @@ FROM python:3.12-slim
 ARG TARGETARCH
 ARG GO_PMTILES_VERSION=1.31.2
 
+# go-pmtiles' release assets name the Linux x86_64 build "x86_64", not
+# "amd64" -- Docker buildx's TARGETARCH says "amd64" on that platform, so it
+# has to be remapped here or the download 404s (arm64 happens to match both
+# naming schemes, which is why this only broke on amd64 hosts).
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && curl -sL "https://github.com/protomaps/go-pmtiles/releases/download/v${GO_PMTILES_VERSION}/go-pmtiles_${GO_PMTILES_VERSION}_Linux_${TARGETARCH}.tar.gz" \
+    && GO_PMTILES_ARCH=$( [ "$TARGETARCH" = "amd64" ] && echo x86_64 || echo "$TARGETARCH" ) \
+    && curl -sfL "https://github.com/protomaps/go-pmtiles/releases/download/v${GO_PMTILES_VERSION}/go-pmtiles_${GO_PMTILES_VERSION}_Linux_${GO_PMTILES_ARCH}.tar.gz" \
        -o /tmp/go-pmtiles.tar.gz \
     && tar -xzf /tmp/go-pmtiles.tar.gz -C /usr/local/bin pmtiles \
     && rm /tmp/go-pmtiles.tar.gz

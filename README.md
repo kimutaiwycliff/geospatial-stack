@@ -9,6 +9,29 @@ OSM basemap tiles behind Caddy. See
 for the full plan of record (mission, architecture, data model, security
 defaults, roadmap) this was built against.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Browser<br/>React + MapLibre SPA] --> P[Caddy]
+    P --> API[FastAPI<br/>public read · admin]
+    P --> M[Martin<br/>dynamic MVT]
+    P --> B[Self-hosted OSM<br/>basemap tiles]
+    API -- jobs --> R[(Redis)] --> W[Celery workers<br/>validate · ETL · tile]
+    W --> S[(MinIO / R2<br/>raw uploads · GeoParquet · PMTiles)]
+    W --> DB[(PostGIS<br/>registry · curated · published)]
+    API --> DB
+    M --> DB
+    subgraph Observability
+      PR[Prometheus] --- G[Grafana] --- L[Loki]
+    end
+```
+
+Uploads land in object storage, a worker validates them (geometry, CRS, schema) and
+loads them through DuckDB/GeoParquet into PostGIS; only an approved dataset is
+published as a tiled layer. Prometheus, Grafana and Loki collect metrics and logs
+from the database, workers and API.
+
 ## What the app does
 
 - **Public map site** — an interactive map of every published layer, with
